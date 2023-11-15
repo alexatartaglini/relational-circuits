@@ -8,6 +8,8 @@ from torch.utils.data import Dataset
 import itertools
 from math import floor
 import pickle
+import seaborn as sns
+import colorsys
 
 
 abbreviated_ds = {'NAT': 'NATURALISTIC',
@@ -16,7 +18,7 @@ abbreviated_ds = {'NAT': 'NATURALISTIC',
                   'SQU': 'SQUIGGLES'}
 obj_dict = {}
 int_to_label = {1: 'same', 0: 'different'}
-label_to_int = {'same': 1, 'different': 0}
+label_to_int = {'same': 1, 'different': 0, 'different-shape': 0, 'different-texture': 0, "different-color": 0}
 
 
 def load_dataset(root_dir):
@@ -120,6 +122,10 @@ def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, st
         # Prevent combinatorial explosion
         if len(all_different_pairs) > n_per_class*10:
             all_different_pairs = random.sample(all_different_pairs, k=n_per_class*10)
+            
+        all_different_shape_pairs = []
+        all_different_texture_pairs = []
+        all_different_color_pairs = []
         
         # Make sure different stimuli are different in shape AND texture
         if stim_type == 'SHAPES' or 'SHA' in stim_type:
@@ -130,12 +136,29 @@ def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, st
                     
                     if obj1[0] == obj2[0] or obj1[1] == obj2[1] or obj1[2] == obj2[2]:
                         all_different_pairs.remove(pair)
+                        
+                    if obj1[0] != obj2[0] and (obj1[1] == obj2[1] and obj1[2] == obj2[2]):
+                        all_different_shape_pairs.append(pair)
+                    elif obj1[1] != obj2[1] and (obj1[0] == obj2[0] and obj1[2] == obj2[2]):
+                        all_different_texture_pairs.append(pair)
+                    elif obj1[2] != obj2[2] and (obj1[0] == obj2[0] and obj1[1] == obj2[1]):
+                        all_different_color_pairs.append(pair)
         
         different_sample = random.sample(all_different_pairs, k=n_per_class)
+        #different_shape_sample = random.sample(all_different_shape_pairs, k=n_per_class)
+        #different_texture_sample = random.sample(all_different_texture_pairs, k=n_per_class)
+        #different_color_sample = random.sample(all_different_color_pairs, k=n_per_class)
+        different_shape_sample = all_different_shape_pairs
+        different_texture_sample = all_different_texture_pairs
+        different_color_sample = all_different_color_pairs
             
         same_pairs = {tuple([o] * k): [] for o in obj_sample}
         different_pairs = {o: [] for o in different_sample}
+        different_shape_pairs = {o: [] for o in different_shape_sample}
+        different_texture_pairs = {o: [] for o in different_texture_sample}
+        different_color_pairs = {o: [] for o in different_color_sample}
 
+        # TODO: make this more compact
         # Assign positions for each object pair: one position each
         for pair in same_pairs.keys():
             
@@ -167,12 +190,46 @@ def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, st
                     c2 = tuple(random.sample(list(coords), k=2))
 
                 different_pairs[pair].append([c1, c2])
+                
+        for pair in different_texture_pairs.keys():
+            if not unaligned:
+                c = random.sample(possible_coords, k=k)
+                different_texture_pairs[pair].append(c)
+            else:  # Code needs to be altered for k > 2
+                c1 = tuple(random.sample(list(coords), k=2))
+                c2 = tuple(random.sample(list(coords), k=2))
+
+                # Ensure there is no overlap
+                while (c2[0] >= (c1[0] - obj_size) and c2[0] <= (c1[0] + obj_size)) \
+                        and (c2[1] >= (c1[1] - obj_size) and c2[1] <= (c1[1] + obj_size)):
+                    c2 = tuple(random.sample(list(coords), k=2))
+
+                different_texture_pairs[pair].append([c1, c2])
+                
+        for pair in different_color_pairs.keys():
+            if not unaligned:
+                c = random.sample(possible_coords, k=k)
+                different_color_pairs[pair].append(c)
+            else:  # Code needs to be altered for k > 2
+                c1 = tuple(random.sample(list(coords), k=2))
+                c2 = tuple(random.sample(list(coords), k=2))
+
+                # Ensure there is no overlap
+                while (c2[0] >= (c1[0] - obj_size) and c2[0] <= (c1[0] + obj_size)) \
+                        and (c2[1] >= (c1[1] - obj_size) and c2[1] <= (c1[1] + obj_size)):
+                    c2 = tuple(random.sample(list(coords), k=2))
+
+                different_color_pairs[pair].append([c1, c2])
     else:
         all_different_pairs = list(itertools.combinations(objects, k))
         
         # Prevent combinatorial explosion
         if len(all_different_pairs) > n_per_class*10:
             all_different_pairs = random.sample(all_different_pairs, k=n_per_class*10)
+            
+        all_different_shape_pairs = []
+        all_different_texture_pairs = []
+        all_different_color_pairs = []
         
         # Make sure different stimuli are different in shape AND texture
         if stim_type == 'SHAPES' or 'SHA' in stim_type:
@@ -183,11 +240,28 @@ def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, st
                     
                     if obj1[0] == obj2[0] or obj1[1] == obj2[1] or obj1[2] == obj2[2]:
                         all_different_pairs.remove(pair)
+                        
+                    if obj1[0] != obj2[0] and (obj1[1] == obj2[1] and obj1[2] == obj2[2]):
+                        all_different_shape_pairs.append(pair)
+                    elif obj1[1] != obj2[1] and (obj1[0] == obj2[0] and obj1[2] == obj2[2]):
+                        all_different_texture_pairs.append(pair)
+                    elif obj1[2] != obj2[2] and (obj1[0] == obj2[0] and obj1[1] == obj2[1]):
+                        all_different_color_pairs.append(pair)
         
         different_sample = random.sample(all_different_pairs, k=len(objects))
+        
+        #different_shape_sample = random.sample(all_different_shape_pairs, k=n_per_class)
+        #different_texture_sample = random.sample(all_different_texture_pairs, k=n_per_class)
+        #different_color_sample = random.sample(all_different_color_pairs, k=n_per_class)
+        different_shape_sample = all_different_shape_pairs
+        different_texture_sample = all_different_texture_pairs
+        different_color_sample = all_different_color_pairs
 
         same_pairs = {tuple([o] * k): [] for o in objects}
         different_pairs = {o: [] for o in different_sample}
+        different_shape_pairs = {o: [] for o in different_shape_sample}
+        different_texture_pairs = {o: [] for o in different_texture_sample}
+        different_color_pairs = {o: [] for o in different_color_sample}
 
         n_same = len(objects)
 
@@ -210,6 +284,9 @@ def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, st
         # Generate unique positions for pairs until desired number is achieved
         same_keys = list(same_pairs.keys())
         different_keys = list(different_pairs.keys())
+        different_shape_keys = list(different_shape_pairs.keys())
+        different_texture_keys = list(different_texture_pairs.keys())
+        different_color_keys = list(different_color_pairs.keys())
 
         same_counts = [1] * n_same
 
@@ -256,20 +333,58 @@ def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, st
 
         assert sum(same_counts) == n_per_class
 
+        for keys, pairs in zip([different_keys, different_shape_keys, different_texture_keys, different_color_keys],
+                               [different_pairs, different_shape_pairs, different_texture_pairs, different_color_pairs]):
+            
+            for i in range(len(keys)):
+                key = keys[i]
+                
+                count = same_counts[i]
+                
+                for j in range(count):
+                    existing_positions = [set(c) for c in pairs[key]]
+                    
+                    if not unaligned:
+                        c = random.sample(possible_coords, k=k)
+                        
+                        while set(c) in existing_positions:  # Ensure unique position
+                            c = random.sample(possible_coords, k=k)
+                        pairs[key].append(c)
+               
+        '''
         for i in range(len(different_keys)):
             key = different_keys[i]
+            key_shape = different_shape_keys[i]
+            key_texture = different_texture_keys[i]
+            key_color = different_color_keys[i]
+            
             count = same_counts[i]
 
             for j in range(count):
                 existing_positions = [set(c) for c in different_pairs[key]]
+                existing_positions_shape = [set(c) for c in different_shape_pairs[key_shape]]
+                existing_positions_texture = [set(c) for c in different_texture_pairs[key_texture]]
+                existing_positions_color = [set(c) for c in different_color_pairs[key_color]]
 
                 if not unaligned:
                     c = random.sample(possible_coords, k=k)
 
                     while set(c) in existing_positions:  # Ensure unique position
                         c = random.sample(possible_coords, k=k)
-
                     different_pairs[key].append(c)
+                    
+                    while set(c) in existing_positions_shape:  # Ensure unique position
+                        c = random.sample(possible_coords, k=k)
+                    different_shape_pairs[key_shape].append(c)
+                    
+                    while set(c) in existing_positions_texture:  # Ensure unique position
+                        c = random.sample(possible_coords, k=k)
+                    different_texture_pairs[key_texture].append(c)
+                    
+                    while set(c) in existing_positions_color:  # Ensure unique position
+                        c = random.sample(possible_coords, k=k)
+                    different_color_pairs[key_color].append(c)
+                    
                 else:  # Code needs to be altered for k > 2
                     c1 = tuple(random.sample(list(coords), k=2))
                     c2 = tuple(random.sample(list(coords), k=2))
@@ -289,7 +404,9 @@ def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, st
                             c2 = tuple(random.sample(list(coords), k=2))
 
                     different_pairs[key].append([c1, c2])
-
+                    
+        '''
+                    
     # Create the stimuli generated above
     object_ims_all = {}
 
@@ -303,12 +420,13 @@ def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, st
         
     datadict = {}  # For each image, stores: object positions (in the residual stream) & object colors/textures/shapes
 
-    for sd_class, item_dict in zip(['same', 'different'], [same_pairs, different_pairs]):
+    for sd_class, item_dict in zip(['same', 'different', 'different-shape', 'different-texture', 'different-color'], 
+                                   [same_pairs, different_pairs, different_shape_pairs, different_texture_pairs, different_color_pairs]):
 
         if condition is not None:
             setting = '{0}/{1}/{2}'.format(patch_dir, condition, sd_class)
         else: # called by call_create_devdis
-            setting = '{0}/{2}'.format(patch_dir, sd_class)
+            setting = '{0}/{1}'.format(patch_dir, sd_class)
 
         stim_idx = 0  # For naming the stimuli        
 
@@ -399,15 +517,11 @@ def call_create_stimuli(patch_size, n_train, n_val, n_test, k, unaligned, multip
         except FileExistsError:
             pass
 
-        try:
-            os.mkdir('{0}/{1}/same'.format(patch_dir, condition))
-        except FileExistsError:
-            pass
-
-        try:
-            os.mkdir('{0}/{1}/different'.format(patch_dir, condition))
-        except FileExistsError:
-            pass
+        for sd_class in ['same', 'different', 'different-shape', 'different-texture', 'different-color']:
+            try:
+                os.mkdir('{0}/{1}/{2}'.format(patch_dir, condition, sd_class))
+            except FileExistsError:
+                pass
 
     # Collect object image paths
     if '-' in path_elements[1]:  # Compound dataset
@@ -485,6 +599,38 @@ def call_create_stimuli(patch_size, n_train, n_val, n_test, k, unaligned, multip
     create_stimuli(k, n_test, object_files_test, unaligned, patch_size, multiplier,
                    im_size, path_elements[1], patch_dir, 'test', rotation=rotation, scaling=scaling)
 
+def create_source(num_shapes=16, num_textures=16, num_colors=16):
+    ims = glob.glob("../same-different-transformers/stimuli/source/DEVELOPMENTAL/*.png")
+    
+    shapes = list(set([im.split("/")[-1].split("-")[0] for im in ims]))
+    if num_shapes < len(shapes):
+        shapes = random.sample(shapes, num_shapes)
+    shapes = sorted(shapes)
+    
+    texture_select = range(1, 113)
+    textures = random.sample(texture_select, num_textures)
+    textures = sorted([f"D{t}" for t in textures])
+    
+    colors = sns.color_palette("hls", num_colors)
+    colors = [colorsys.rgb_to_hsv(c[0]/255., c[1]/255., c[2]/255.) for c in colors]
+    
+    for im_file in ims:
+        im_shape = im_file.split("/")[-1].split("-")[0]
+        im_texture = im_file.split("/")[-1].split("-")[1][:-4]
+         
+        if im_shape in shapes and im_texture in textures:
+            im = Image.open(im_file).convert('HSV')
+            H, S, V = im.split()
+            
+            for c in range(num_colors):
+                color = colors[c]
+                H = H.point(lambda p: color[0]*255 if p>0 else 0)
+                S = S.point(lambda p: color[1]*255 + 20 if p>0 else 0)
+                V = V.point(lambda p: p + 3)
+                
+                new_im_file = f"stimuli/source/SHAPES/{shapes.index(im_shape)}-{textures.index(im_texture)}-{c}.png"  #STC
+                new_im = Image.merge('HSV', (H,S,V)).convert('RGB')
+                new_im.save(new_im_file)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Generate data.')
@@ -554,4 +700,5 @@ if __name__ == "__main__":
 
     call_create_stimuli(patch_size, n_train, n_val, n_test, k, unaligned, multiplier, patch_dir, rotation, scaling,
                         n_train_tokens=n_train_tokens, n_val_tokens=n_val_tokens, n_test_tokens=n_test_tokens)
-        
+    
+    #create_source(num_textures=16, num_colors=16)
