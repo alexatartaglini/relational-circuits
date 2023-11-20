@@ -33,6 +33,9 @@ def train_model(args, model, device, data_loader, dataset_size, optimizer,
         aug_string += 'S'
     if len(aug_string) == 0:
         aug_string = 'N'
+        
+    if not unaligned:
+        aug_string += f'_{patch_size}'
     
     int_to_label = {0: 'different', 1: 'same'}
     
@@ -582,6 +585,9 @@ else:
             train_dataset_string += f'{td[:3]}-'
     train_dataset_string = train_dataset_string[:-1]
 
+if train_dataset_string == "SHAPES":
+    train_dataset_string += f"/{patch_size}"
+
 # Compute number of unique train tokens
 n_unique = len([f for f in os.listdir(f'stimuli/source/{train_dataset_string}') 
                 if os.path.isfile(os.path.join(f'stimuli/source/{train_dataset_string}', f)) 
@@ -641,7 +647,7 @@ elif len(n_test_tokens_ood) == 1:
 else:
     assert len(n_test_tokens_ood) == len(val_datasets_names) 
 
-path_elements = [model_string, train_dataset_string, pos_string, aug_string, f'trainsize_{n_train}_{n_unique_train}-{n_unique_val}-{n_unique_test}']
+path_elements = [model_string, train_dataset_string.split("/")[0], pos_string, aug_string, f'trainsize_{n_train}_{n_unique_train}-{n_unique_val}-{n_unique_test}']
 
 for root in ['logs']:
     stub = root
@@ -653,11 +659,11 @@ for root in ['logs']:
             pass
         stub = '{0}/{1}'.format(stub, p)
 
-log_dir = 'logs/{0}/{1}/{2}/{3}/{4}'.format(model_string, train_dataset_string, pos_string, aug_string, 
+log_dir = 'logs/{0}/{1}/{2}/{3}/{4}'.format(model_string, train_dataset_string.split("/")[0], pos_string, aug_string, 
                                             f'trainsize_{n_train}_{n_unique_train}-{n_unique_val}-{n_unique_test}')
 
 # Construct train set + DataLoader
-train_dir = 'stimuli/{0}/{1}/{2}/{3}'.format(train_dataset_string, pos_string, aug_string, 
+train_dir = 'stimuli/{0}/{1}/{2}/{3}'.format(train_dataset_string.split("/")[0], pos_string, aug_string, 
                                              f'trainsize_{n_train}_{n_unique_train}-{n_unique_val}-{n_unique_test}')
 
 if not os.path.exists(train_dir):
@@ -675,7 +681,7 @@ val_dataloader = DataLoader(val_dataset, batch_size=1024, shuffle=True)
 # Construct other validation sets
 val_datasets = [val_dataset]
 val_dataloaders = [val_dataloader]
-val_labels = [train_dataset_string]
+val_labels = [train_dataset_string.split("/")[0]]
 
 # Optimizer and scheduler
 if optim == 'adamw':
@@ -700,7 +706,7 @@ exp_config = {
     'feature_extract': feature_extract,
     'pretrained': pretrained,
     'train_device': device,
-    'train_dataset': train_dataset_string,
+    'train_dataset': train_dataset_string.split("/")[0],
     'pos_condition': pos_string,
     'aug': aug_string,
     'train_size': n_train,
@@ -726,7 +732,7 @@ else:
                      settings=wandb.Settings(start_method="fork"))
 
 run_id = wandb.run.id
-run.name = f'TRAIN_{model_string}_{train_dataset_string}{n_train}-{n_unique_train}-{n_unique_val}-{n_unique_test}_{aug_string}_LR{lr}_{run_id}'
+run.name = f'TRAIN_{model_string}_{train_dataset_string.split("/")[0]}{n_train}-{n_unique_train}-{n_unique_val}-{n_unique_test}_{aug_string}_LR{lr}_{run_id}'
 
 # Log model predictions
 pred_columns = ['Training Epoch', 'File Name', 'Image', 'Dataset', 'Prediction',
