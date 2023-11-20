@@ -75,8 +75,6 @@ def train_model(args, model, device, data_loader, dataset_size, optimizer,
         labels_to_labels = {}
     else:
         model = model['classifier']
-        
-    print(model)
 
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch + 1, num_epochs))
