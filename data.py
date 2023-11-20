@@ -68,7 +68,7 @@ class SameDifferentDataset(Dataset):
 
 
 def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, stim_type,
-                   patch_dir, condition, rotation=False, scaling=False):
+                   patch_dir, condition, rotation=False, scaling=False, buffer_factor=8):
     '''
     Creates n same_different stimuli with (n // 2) stimuli assigned to each class. If
     n > the number of unique objects used to create the dataset, then randomly selected
@@ -350,62 +350,6 @@ def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, st
                         while set(c) in existing_positions:  # Ensure unique position
                             c = random.sample(possible_coords, k=k)
                         pairs[key].append(c)
-               
-        '''
-        for i in range(len(different_keys)):
-            key = different_keys[i]
-            key_shape = different_shape_keys[i]
-            key_texture = different_texture_keys[i]
-            key_color = different_color_keys[i]
-            
-            count = same_counts[i]
-
-            for j in range(count):
-                existing_positions = [set(c) for c in different_pairs[key]]
-                existing_positions_shape = [set(c) for c in different_shape_pairs[key_shape]]
-                existing_positions_texture = [set(c) for c in different_texture_pairs[key_texture]]
-                existing_positions_color = [set(c) for c in different_color_pairs[key_color]]
-
-                if not unaligned:
-                    c = random.sample(possible_coords, k=k)
-
-                    while set(c) in existing_positions:  # Ensure unique position
-                        c = random.sample(possible_coords, k=k)
-                    different_pairs[key].append(c)
-                    
-                    while set(c) in existing_positions_shape:  # Ensure unique position
-                        c = random.sample(possible_coords, k=k)
-                    different_shape_pairs[key_shape].append(c)
-                    
-                    while set(c) in existing_positions_texture:  # Ensure unique position
-                        c = random.sample(possible_coords, k=k)
-                    different_texture_pairs[key_texture].append(c)
-                    
-                    while set(c) in existing_positions_color:  # Ensure unique position
-                        c = random.sample(possible_coords, k=k)
-                    different_color_pairs[key_color].append(c)
-                    
-                else:  # Code needs to be altered for k > 2
-                    c1 = tuple(random.sample(list(coords), k=2))
-                    c2 = tuple(random.sample(list(coords), k=2))
-
-                    # Ensure there is no overlap
-                    while (c2[0] >= (c1[0] - obj_size) and c2[0] <= (c1[0] + obj_size)) \
-                            and (c2[1] >= (c1[1] - obj_size) and c2[1] <= (c1[1] + obj_size)):
-                        c2 = tuple(random.sample(list(coords), k=2))
-
-                    while set([c1, c2]) in existing_positions:  # Ensure unique position
-                        c1 = tuple(random.sample(list(coords), k=2))
-                        c2 = tuple(random.sample(list(coords), k=2))
-
-                        # Ensure there is no overlap
-                        while (c2[0] >= (c1[0] - obj_size) and c2[0] <= (c1[0] + obj_size)) \
-                                and (c2[1] >= (c1[1] - obj_size) and c2[1] <= (c1[1] + obj_size)):
-                            c2 = tuple(random.sample(list(coords), k=2))
-
-                    different_pairs[key].append([c1, c2])
-                    
-        '''
                     
     # Create the stimuli generated above
     object_ims_all = {}
@@ -414,8 +358,8 @@ def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, st
         if '-' in stim_type:
             im = Image.open('stimuli/source/{0}/{1}'.format(obj_dict[o], o)).convert('RGB')
         else:
-            im = Image.open('stimuli/source/{0}/{1}'.format("SHAPES" if "DEVDIS" in stim_type else stim_type, o)).convert('RGB')
-        im = im.resize((obj_size, obj_size))
+            im = Image.open('stimuli/source/{0}/{1}'.format(f"SHAPES/{patch_size}" if stim_type == "SHAPES" else stim_type, o)).convert('RGB')
+        im = im.resize((obj_size - (obj_size // buffer_factor), obj_size - (obj_size // buffer_factor)), Image.NEAREST)
         object_ims_all[o] = im
         
     datadict = {}  # For each image, stores: object positions (in the residual stream) & object colors/textures/shapes
@@ -471,7 +415,7 @@ def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, st
                             rotated_obj_o = scale_base_o
                             
                         scale_base_o = Image.new('RGB', (obj_size, obj_size), (255, 255, 255))
-                        scale_base_o.paste(rotated_obj_o.resize((obj_size, obj_size)))  
+                        scale_base_o.paste(rotated_obj_o.resize((obj_size, obj_size), Image.NEAREST))  
                         
                         object_ims[o] = scale_base_o
                         
@@ -481,11 +425,15 @@ def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, st
                     
                     for o in range(len(object_ims)):
                         scale_base = Image.new('RGB', (obj_size, obj_size), (255, 255, 255))
-                        scaled_obj_im = object_ims[o].resize((scaled_size, scaled_size))
+                        scaled_obj_im = object_ims[o].resize((scaled_size, scaled_size), Image.NEAREST)
                         scale_base.paste(scaled_obj_im, ((obj_size - scaled_size) // 2, (obj_size - scaled_size) // 2))
                         object_ims[o] = scale_base
                     
                 for c in range(len(p)):
+                    box = [coord + random.randint(0, obj_size // buffer_factor) for coord in p[c]]
+                    print(p[c])
+                    print(box)
+                    print()
                     base.paste(object_ims[c], box=p[c])
 
                 base.save(f'{setting}/{stim_idx}.png', quality=100)
@@ -502,6 +450,7 @@ def call_create_stimuli(patch_size, n_train, n_val, n_test, k, unaligned, multip
     assert im_size % patch_size == 0
     
     path_elements = patch_dir.split('/')
+    
     
     stub = 'stimuli'
     for p in path_elements[1:]:
@@ -537,11 +486,15 @@ def call_create_stimuli(patch_size, n_train, n_val, n_test, k, unaligned, multip
                 
             object_files += random.sample(object_files_td, k=min(600, len(object_files_td)))
     else:
-        object_files = [f for f in os.listdir(f'stimuli/source/{path_elements[1]}') 
-                        if os.path.isfile(os.path.join(f'stimuli/source/{path_elements[1]}', f)) 
+        if path_elements[1] == "SHAPES": 
+            stim_dir = path_elements[1] + f"/{patch_size}"
+        else:
+            stim_dir = path_elements[1]
+            
+        object_files = [f for f in os.listdir(f'stimuli/source/{stim_dir}') 
+                        if os.path.isfile(os.path.join(f'stimuli/source/{stim_dir}', f)) 
                         and f != '.DS_Store']
 
-    
     # Compute number of unique objects that should be allocated to train/val/test sets
     n_unique = len(object_files)
     
@@ -599,24 +552,76 @@ def call_create_stimuli(patch_size, n_train, n_val, n_test, k, unaligned, multip
     create_stimuli(k, n_test, object_files_test, unaligned, patch_size, multiplier,
                    im_size, path_elements[1], patch_dir, 'test', rotation=rotation, scaling=scaling)
 
-def create_source(num_shapes=16, num_textures=16, num_colors=16):
-    ims = glob.glob("../same-different-transformers/stimuli/source/DEVELOPMENTAL/*.png")
+def create_source(patch_size=32, texture_res=100, num_shapes=16, num_textures=16, num_colors=16, from_scratch=True):
+    '''Creates and saves SHAPES objects. If from_scratch=True, objects are first created by stamping out textures
+       with shape outlines. In either case (from_scratch=True or False), objects in the "original" directory 
+       are then colored with num_colors different colors and saved in the directory labeled by patch_size.
+    '''
+    if from_scratch:
+        
+        try:
+            os.mkdir(f"stimuli/source/SHAPES/original/{patch_size}")
+        except FileExistsError:
+            pass
+        
+        shape_masks = glob.glob("stimuli/source/shapemasks/*.png")
+        textures = glob.glob("stimuli/source/textures/*.jpg")
+        
+        for texture_file in textures:
+            texture_name = texture_file.split("/")[-1][:-4]
+            texture = Image.open(texture_file).resize((texture_res, texture_res), Image.NEAREST)
+            
+            for shape_file in shape_masks:
+                shape_name = shape_file.split("/")[-1][:-4]
+                
+                # Add alpha channel to make background transparent
+                mask = Image.open(shape_file).convert('RGBA').resize((patch_size, patch_size), Image.NEAREST)
+                
+                # Remove mask background
+                mask_data = mask.getdata()
+                new_data = []
+                for item in mask_data:
+                    if item[0] == 0 and item[1] == 0 and item[2] == 0:
+                        new_data.append(item)
+                    else:
+                        new_data.append((0, 0, 0, 0))
+                mask.putdata(new_data)
+            
+                # Attain a randomly selected patch of texture
+                bound = texture.size[0] - mask.size[0]
+                x = random.randint(0, bound)
+                y = random.randint(0, bound)
+                texture = texture.crop((x, y, x + mask.size[0], y + mask.size[0]))
+                
+                # Place mask over texture
+                base = Image.new('RGBA', mask.size, (255, 255, 255, 0))
+                base.paste(texture, mask=mask.split()[3])
+                
+                base.convert('RGB').save(f"stimuli/source/SHAPES/original/{patch_size}/{shape_name}-{texture_name}.png")
+
+    try:
+        os.mkdir(f"stimuli/source/SHAPES/{patch_size}")
+    except FileExistsError:
+        pass
+
+    ims = glob.glob(f"stimuli/source/SHAPES/original/{patch_size}/*.png")
     
-    shapes = list(set([im.split("/")[-1].split("-")[0] for im in ims]))
+    shapes = list(set([int(im.split("/")[-1].split("-")[0]) for im in ims]))
     if num_shapes < len(shapes):
         shapes = random.sample(shapes, num_shapes)
-    shapes = sorted(shapes)
     
-    texture_select = range(1, 113)
-    textures = random.sample(texture_select, num_textures)
-    textures = sorted([f"D{t}" for t in textures])
-    
+    texture_select = list(range(0, 112))
+    bad_textures = [43, 90, 0, 89, 71, 14]
+    for b in bad_textures:
+        texture_select.remove(b)
+    textures = sorted(random.sample(texture_select, num_textures))
+
     colors = sns.color_palette("hls", num_colors)
     colors = [colorsys.rgb_to_hsv(c[0]/255., c[1]/255., c[2]/255.) for c in colors]
     
     for im_file in ims:
-        im_shape = im_file.split("/")[-1].split("-")[0]
-        im_texture = im_file.split("/")[-1].split("-")[1][:-4]
+        im_shape = int(im_file.split("/")[-1].split("-")[0])
+        im_texture = int(im_file.split("/")[-1].split("-")[1][:-4])
          
         if im_shape in shapes and im_texture in textures:
             im = Image.open(im_file).convert('HSV')
@@ -628,7 +633,7 @@ def create_source(num_shapes=16, num_textures=16, num_colors=16):
                 S = S.point(lambda p: color[1]*255 + 20 if p>0 else 0)
                 V = V.point(lambda p: p + 3)
                 
-                new_im_file = f"stimuli/source/SHAPES/{shapes.index(im_shape)}-{textures.index(im_texture)}-{c}.png"  #STC
+                new_im_file = f"stimuli/source/SHAPES/{patch_size}/{im_shape}-{im_texture}-{c}.png"  #STC
                 new_im = Image.merge('HSV', (H,S,V)).convert('RGB')
                 new_im.save(new_im_file)
 
@@ -659,46 +664,36 @@ if __name__ == "__main__":
                         help='Randomly rotate the objects in the stimuli.')
     parser.add_argument('--scaling', action='store_true', default=False,
                         help='Randomly scale the objects in the stimuli.')
+    parser.add_argument('--create_source', action='store_true', default=False,
+                        help='Create SHAPES source objects (rather than a same-different dataset).')
 
     args = parser.parse_args()
-
-    # Command line arguments
-    patch_size = args.patch_size  # Object size: patch_size x patch_size
-    n_train = args.n_train  # Size of training set
-    n_val = args.n_val  # Size of validation set
-    n_test = args.n_test  # Size of test set
-    n_train_tokens = args.n_train_tokens
-    n_val_tokens = args.n_val_tokens
-    n_test_tokens = args.n_test_tokens
-    k = args.k  # Number of objects per image
-    unaligned = args.unaligned  # False = objects align with ViT patches
-    multiplier = args.multiplier
-    source = args.source
-    rotation = args.rotation
-    scaling = args.scaling
     
-    if unaligned:
-        aligned_str = 'unaligned'
-    else:
-        aligned_str = 'aligned'
+    if args.create_source:
+        create_source(patch_size=args.patch_size,  num_colors=16)
+    else:  # Create same-different dataset
+        if args.unaligned:
+            aligned_str = 'unaligned'
+        else:
+            aligned_str = 'aligned'
+            
+        aug_string = ''
+        if args.rotation:
+            aug_string += 'R'
+        if args.scaling:
+            aug_string += 'S'
+        if len(aug_string) == 0:
+            aug_string = 'N'
         
-    aug_string = ''
-    if rotation:
-        aug_string += 'R'
-    if scaling:
-        aug_string += 'S'
-    if len(aug_string) == 0:
-        aug_string = 'N'
+        patch_dir = f'stimuli/{args.source}/{aligned_str}/{aug_string}_{args.patch_size}/'
+        patch_dir += f'trainsize_{args.n_train}_{args.n_train_tokens}-{args.n_val_tokens}-{args.n_test_tokens}'
+        
+        # Default behavior for n_val, n_test
+        if args.n_val == -1:
+            args.n_val = args.n_train
+        if args.n_test == -1:
+            args.n_test = args.n_train
     
-    patch_dir = f'stimuli/{source}/{aligned_str}/{aug_string}_{patch_size}/trainsize_{n_train}_{n_train_tokens}-{n_val_tokens}-{n_test_tokens}'
-    
-    # Default behavior for n_val, n_test
-    if n_val == -1:
-        n_val = n_train
-    if n_test == -1:
-        n_test = n_train
-
-    call_create_stimuli(patch_size, n_train, n_val, n_test, k, unaligned, multiplier, patch_dir, rotation, scaling,
-                        n_train_tokens=n_train_tokens, n_val_tokens=n_val_tokens, n_test_tokens=n_test_tokens)
-    
-    #create_source(num_textures=16, num_colors=16)
+        call_create_stimuli(args.patch_size, args.n_train, args.n_val, args.n_test, args.k, args.unaligned, 
+                            args.multiplier, patch_dir, args.rotation, args.scaling, n_train_tokens=args.n_train_tokens, 
+                            n_val_tokens=args.n_val_tokens, n_test_tokens=args.n_test_tokens)
