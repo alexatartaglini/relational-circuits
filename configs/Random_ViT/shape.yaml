@@ -1,0 +1,30 @@
+# Model
+target_layer_list: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+operation_list: ["attn", "mlp"]
+mask_init_list: [0.0]
+max_temp: 200
+pretrain: "random"
+patch_size: "32"
+device: "cuda"
+
+# Data
+variable: "s"
+train_dir: "stimuli/SHAPES/aligned/N_32/trainsize_6400_1200-300-100/train"
+test_dir: "stimuli/SHAPES/aligned/N_32/trainsize_6400_1200-300-100/test"
+train_size: 2000
+test_size: 1000
+
+# Training
+num_epochs: 90
+lr_list: [0.001]
+batch_size_list: [500]
+l0_lambda: 1.0e-07
+seed_list: [0]
+
+num_random_ablations: 5
+sd_eval: True
+
+# Output
+model_dir: "./Model/Random_ViT/Shape/"
+results_dir: "./Results/Random_ViT/Shape/"
+save_models: False
