@@ -10,6 +10,7 @@ from math import floor
 import pickle
 import seaborn as sns
 import colorsys
+import torch
 
 
 abbreviated_ds = {'NAT': 'NATURALISTIC',
@@ -21,12 +22,17 @@ int_to_label = {1: 'same', 0: 'different'}
 label_to_int = {'same': 1, 'different': 0, 'different-shape': 0, 'different-texture': 0, "different-color": 0}
 
 
-def load_dataset(root_dir):
+def load_dataset(root_dir, subset=None):
     ims = {}
     idx = 0
 
-    for l in int_to_label.keys():
-        im_paths = glob.glob('{0}/{1}/*.png'.format(root_dir, int_to_label[l]))
+    if subset is None:
+        labels = int_to_label
+    else:
+        labels = subset
+
+    for l in labels.keys():
+        im_paths = glob.glob('{0}/{1}/*.png'.format(root_dir, labels[l]))
 
         for im in im_paths:
             pixels = Image.open(im)
@@ -39,9 +45,9 @@ def load_dataset(root_dir):
 
 
 class SameDifferentDataset(Dataset):
-    def __init__(self, root_dir, transform=None, rotation=False, scaling=False, feature_extract=False):
+    def __init__(self, root_dir, subset=None, transform=None, rotation=False, scaling=False, feature_extract=False):
         self.root_dir = root_dir
-        self.im_dict = load_dataset(root_dir)
+        self.im_dict = load_dataset(root_dir, subset=subset)
         self.transform = transform
         self.rotation = rotation
         self.scaling = scaling
@@ -52,7 +58,6 @@ class SameDifferentDataset(Dataset):
 
     def __getitem__(self, idx):
         im_path = self.im_dict[idx]['image_path']
-        im_path = self.im_dict[idx]['image_path']
         im = Image.open(im_path)
         label = self.im_dict[idx]['label']
 
@@ -62,11 +67,61 @@ class SameDifferentDataset(Dataset):
                 item = {'image': item, 'label': label}
             else:
                 item = self.transform.preprocess(np.array(im, dtype=np.float32), return_tensors='pt')
-                item['label'] = label
-
+                item['labels'] = label
+                item["pixel_values"] = item["pixel_values"].squeeze(0)
+                
         return item, im_path
 
 
+class SameDifferentProbeDataset(Dataset):
+    """Dataset used for training CircuitProbes
+    """
+    def __init__(self, root_dir, variable, transform=None, rotation=False, scaling=False, max_tokens=50):
+        """
+        Args:
+            root_dir: root directory of image files
+            variable: Which variable we're probing for
+        """
+        self.root_dir = root_dir
+        self.im_dict = load_dataset(os.path.join(root_dir))
+        self.transform = transform
+        self.rotation = rotation
+        self.scaling = scaling
+        self.max_tokens = max_tokens
+        self.variable = variable
+        self.metadata = pickle.load(open(os.path.join(root_dir, "datadict.pkl"), "rb"))
+
+    def __len__(self):
+        return len(list(self.im_dict.keys()))
+
+    def __getitem__(self, idx):
+        im_path = self.im_dict[idx]['image_path']
+        im = Image.open(im_path)
+        meta_key = os.path.join(*im_path.split("/")[-3:])
+        im_meta = self.metadata[meta_key]
+        if self.transform:
+            if str(type(self.transform)) == "<class 'torchvision.transforms.transforms.Compose'>":
+                im = self.transform(im)
+            else:
+                im = self.transform.preprocess(np.array(im, dtype=np.float32), return_tensors='pt')["pixel_values"].squeeze(0)
+        
+        # Create token mask and probe labels
+        token_mask = torch.zeros(self.max_tokens)
+        token_mask[im_meta["pos1"]] = 1
+        token_mask[im_meta["pos2"]] = 1
+
+        labels = torch.torch.full((self.max_tokens,), -1000)
+        labels[im_meta["pos1"]] = int(im_meta[self.variable + "1"])
+        labels[im_meta["pos2"]] = int(im_meta[self.variable + "2"])
+
+        item = {
+            "pixel_values": im,
+            "labels": labels,
+            "token_mask": token_mask.bool()
+        }
+
+        return item
+    
 def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, stim_type,
                    patch_dir, condition, rotation=False, scaling=False, buffer_factor=8):
     '''
