@@ -8,4 +8,4 @@
 source /gpfs/data/epavlick/mlepori/miniconda3/etc/profile.d/conda.sh
 
 conda activate relational-circuits
-python $PROJECT_DIR/activation_patching.py --config $CONFIG
+python $PROJECT_DIR/causal_tracing.py --config $CONFIG

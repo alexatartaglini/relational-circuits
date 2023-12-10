@@ -1,0 +1,10 @@
+pretrain: "imagenet"
+patch_size: "32"
+device: "cuda"
+
+im_path_same: "stimuli/patching/10-20/same.png"
+im_path_diff: "stimuli/patching/10-20/different.png"
+im_path_corrupt: "stimuli/patching/10-20/shape.png"
+
+
+outpath: "Results/Tracing/Imagent/10-20/shape"

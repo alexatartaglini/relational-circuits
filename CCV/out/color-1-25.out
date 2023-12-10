@@ -1,3 +1,12 @@
+## SLURM PROLOG ###############################################################
+##    Job ID : 12343298
+##  Job Name : color-1-25
+##  Nodelist : gpu2103
+##      CPUs : 1
+##  Mem/Node : 61440 MB
+## Directory : /oscar/data/epavlick/mlepori/projects/relational-circuits
+##   Job Started : Sun Dec 10 16:37:48 EST 2023
+###############################################################################
 attn
 mlp
 stream
