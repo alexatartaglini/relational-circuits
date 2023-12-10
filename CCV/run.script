@@ -3,9 +3,9 @@
 #SBATCH -N 1-1 -n 1 
 #SBATCH -p gpu --gres=gpu:1
 #SBATCH --mem=60gb
-#SBATCH -t 24:00:00
+#SBATCH -t 1:00:00
 
 source /gpfs/data/epavlick/mlepori/miniconda3/etc/profile.d/conda.sh
 
 conda activate relational-circuits
-python $PROJECT_DIR/circuit_probing.py --config $CONFIG
+python $PROJECT_DIR/activation_patching.py --config $CONFIG

@@ -1,5 +1,5 @@
 export PROJECT_DIR=/users/mlepori/data/mlepori/projects/relational-circuits/
-export CONFIG_DIR=configs/Imagenet_ViT/
+export CONFIG_DIR=configs/Patching/imagenet/
 for file in ${CONFIG_DIR}/*;
 do
     echo "$file"

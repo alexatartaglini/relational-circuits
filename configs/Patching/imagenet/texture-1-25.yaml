@@ -1,0 +1,10 @@
+pretrain: "imagenet"
+patch_size: "32"
+device: "cuda"
+
+im_path_same: "stimuli/patching/1-25/same.png"
+im_path_diff: "stimuli/patching/1-25/different.png"
+im_path_corrupt: "stimuli/patching/1-25/texture.png"
+
+
+outpath: "Results/Patching/Imagent/1-25/texture"
