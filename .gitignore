@@ -1,3 +1,5 @@
 Models/*
 *.pyc
-bad_stimuli/*
+__MACOSX/*
+*.DS_Store
+*.pth

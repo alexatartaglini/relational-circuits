@@ -9,40 +9,49 @@ import torch
 
 def plot_everything(df, figtitle, filetitle):
     # Get rid of data points whose subnetworks comprise > 50% of any tensor
-    df = df[df["random ablate acc mean"] != -1]
+    #df = df[df["random ablate acc mean"] != -1]
     df["Component"] = df["operation"] + "-" + df["target_layer"].astype(str)
     plt.figure()
 
     plot_df = pd.DataFrame.from_dict({
         "Component": df["Component"],
-        "Circuit": df["ablated acc"],
-        "Random": df["random ablate acc mean"],
+        #"different": df["different ablated acc"],
+        "diff_shape": df["different-shape ablated acc"],
+        "diff_color": df["different-color ablated acc"],
+        "diff_texture": df["different-texture ablated acc"],
+        "same": df["same ablated acc"],
     } )
 
     curr_df = plot_df
 
-    errorbars = []
-    errorbars += [0] * len(curr_df["Component"])
-    errorbars += list(df["random ablate acc std"].values)
+    #errorbars = []
+    #errorbars += [0] * len(curr_df["Component"])
+    #errorbars += list(df["random ablate acc std"].values)
 
     sns.set(style="darkgrid", palette="Dark2", font_scale=1.5)
     ax = sns.catplot(data=pd.melt(curr_df, id_vars="Component", var_name="Condition", value_name="Ablated Accuracy"), kind="bar", x="Component", y="Ablated Accuracy", hue="Condition", height=5, aspect=6)
     ax._legend.remove()
     x_coords = [p.get_x() + 0.5 * p.get_width() for p in ax.axes[0,0].patches]
-    xmin = ax.axes[0,0].patches[0].get_x()
-    xmax = ax.axes[0,0].patches[-1].get_x() + ax.axes[0,0].patches[-1].get_width()
-    y_coords = [p.get_height() for p in ax.axes[0,0].patches]
+    #xmin = ax.axes[0,0].patches[0].get_x()
+    #xmax = ax.axes[0,0].patches[-1].get_x() + ax.axes[0,0].patches[-1].get_width()
+    xmin = np.min(x_coords)
+    xmax = np.max(x_coords)
+
+    #y_coords = [p.get_height() for p in ax.axes[0,0].patches]
     #ax.axes[0,0].errorbar(x=x_coords, y=y_coords, yerr=errorbars, fmt="none", c="k")
     plt.xticks(rotation=30)
     plt.title(f"{figtitle} SD Ablation")
-    line2 = plt.hlines(df["vanilla acc"].values[0], xmin=xmin, xmax=xmax, color="green", linestyles="dashed", label="Full Acc.")
+    line2 = plt.hlines(df["same vanilla acc"].values[0], xmin=xmin, xmax=xmax, color="purple", linestyles="dashed", label="Full Same Acc.")
+    line2 = plt.hlines(df["different-shape vanilla acc"].values[0], xmin=xmin, xmax=xmax, color="green", linestyles="dashed", label="Full Shape Acc.")
+    line2 = plt.hlines(df["different-color vanilla acc"].values[0], xmin=xmin, xmax=xmax, color="red", linestyles="dashed", label="Full Color Acc.")
+    line2 = plt.hlines(df["different-texture vanilla acc"].values[0], xmin=xmin, xmax=xmax, color="blue", linestyles="dashed", label="Full Texture Acc.")
     plt.ylim(0.0, 1.0)
     plt.legend(loc="lower right")
     plt.savefig(f"{filetitle}.pdf", format="pdf", bbox_inches="tight")
 
 def plot_knn(df, figtitle, filetitle):
     # Get rid of data points whose subnetworks comprise > 50% of any tensor
-    df = df[df["random ablate acc mean"] != -1]
+    #df = df[df["random ablate acc mean"] != -1]
     df["Component"] = df["operation"] + "-" + df["target_layer"].astype(str)
     plt.figure(figsize=(30, 10))
     plot_df = pd.DataFrame.from_dict({
