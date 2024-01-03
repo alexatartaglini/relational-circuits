@@ -583,8 +583,8 @@ else:
     train_dataset_string = train_dataset_string[:-1]
 
 # Compute number of unique train tokens
-n_unique = len([f for f in os.listdir(f'stimuli/source/{train_dataset_string}') 
-                if os.path.isfile(os.path.join(f'stimuli/source/{train_dataset_string}', f)) 
+n_unique = len([f for f in os.listdir(f'stimuli/source/{train_dataset_string}/{patch_size}') 
+                if os.path.isfile(os.path.join(f'stimuli/source/{train_dataset_string}/{patch_size}', f)) 
                 and f != '.DS_Store'])
 if n_train_tokens == -1:
     percent_train = n_train / (n_train + n_val + n_test)
