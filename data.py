@@ -67,7 +67,7 @@ class SameDifferentDataset(Dataset):
                 item = {'image': item, 'label': label}
             else:
                 item = self.transform.preprocess(np.array(im, dtype=np.float32), return_tensors='pt')
-                item['labels'] = label
+                item['label'] = label
                 item["pixel_values"] = item["pixel_values"].squeeze(0)
                 
         return item, im_path
