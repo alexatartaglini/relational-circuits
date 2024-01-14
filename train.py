@@ -326,7 +326,7 @@ parser.add_argument('--checkpoint', help='Whether or not to store model checkpoi
                     default=True)
 parser.add_argument('--log_preds_freq', help='Number of times to log model predictions \
                     on test sets throughout training. Saves are equally spaced from 0 to num_epochs.',
-                    type=int, default=3)
+                    type=int, default=-1)
 parser.add_argument('--wandb_cache_dir', help='Directory for WandB cache. May need to be cleared \
                     depending on available storage in order to store artifacts.', default=None)
 parser.add_argument('--clip_dir', help='Directory where CLIP models should be downloaded.',
