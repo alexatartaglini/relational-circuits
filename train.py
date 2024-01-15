@@ -544,7 +544,7 @@ elif 'clip' in model_type:
             #model, transform = clip.load(f'ViT-B/{patch_size}', device=device, download_root=args.clip_dir)
             model = CLIPVisionModelWithProjection.from_pretrained(
                 model_path, 
-                hidden_act="gelu", 
+                hidden_act="quick_gelu", 
                 id2label=int_to_label,
                 label2id=label_to_int)
         else:
