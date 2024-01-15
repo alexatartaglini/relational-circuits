@@ -50,7 +50,7 @@ def train_model(args, model, device, data_loader, dataset_size, optimizer,
     if log_preds_freq > 0:
         log_preds_epochs = np.linspace(0, num_epochs, log_preds_freq, dtype=int)
     else:
-        log_preds_epochs = -1
+        log_preds_epochs = [-1]
 
     criterion = nn.CrossEntropyLoss()
     
@@ -76,8 +76,6 @@ def train_model(args, model, device, data_loader, dataset_size, optimizer,
         labels_to_labels = {}
     else:
         model = model['classifier']
-        
-    print(model)
 
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch + 1, num_epochs))
@@ -115,7 +113,10 @@ def train_model(args, model, device, data_loader, dataset_size, optimizer,
                 outputs = model(inputs)
 
                 if 'vit' in model_type:
-                    outputs = outputs.logits
+                    if "clip" in model_type:
+                        outputs = outputs.image_embeds
+                    else:
+                        outputs = outputs.logits
 
                 loss = criterion(outputs, labels)
                 acc = accuracy_score(labels.to('cpu'), outputs.to('cpu').argmax(1))
@@ -167,7 +168,10 @@ def train_model(args, model, device, data_loader, dataset_size, optimizer,
 
                     outputs = model(inputs)
                     if 'vit' in model_type:
-                        outputs = outputs.logits
+                        if "clip" in model_type:
+                            outputs = outputs.image_embeds
+                        else:
+                            outputs = outputs.logits
 
                     loss = criterion(outputs, labels)
                     preds = outputs.argmax(1)
@@ -243,8 +247,6 @@ try:
         device = torch.device('cpu')
 except AttributeError:  # if MPS is not available
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
-print(device)
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--wandb_proj', type=str, default='same-different-transformers',
@@ -542,7 +544,7 @@ elif 'clip' in model_type:
             #model, transform = clip.load(f'ViT-B/{patch_size}', device=device, download_root=args.clip_dir)
             model = CLIPVisionModelWithProjection.from_pretrained(
                 model_path, 
-                num_labels=2, 
+                hidden_act="gelu", 
                 id2label=int_to_label,
                 label2id=label_to_int)
         else:
@@ -552,6 +554,9 @@ elif 'clip' in model_type:
         transform = AutoProcessor.from_pretrained(model_path)
         
         #in_features = model.visual.proj.shape[1]
+        # Replace projection with correct dimensions
+        in_features = model.visual_projection.in_features
+        model.visual_projection = nn.Linear(in_features, 2)
     else:
         sys.exit(1)  # removing support for ResNet
         '''

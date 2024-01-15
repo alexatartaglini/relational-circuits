@@ -66,7 +66,10 @@ class SameDifferentDataset(Dataset):
                 item = self.transform(im)
                 item = {'image': item, 'label': label}
             else:
-                item = self.transform.preprocess(np.array(im, dtype=np.float32), return_tensors='pt')
+                if str(type(self.transform)) == "<class 'transformers.models.clip.processing_clip.CLIPProcessor'>":
+                    item = self.transform(images=im, return_tensors='pt')
+                else:
+                    item = self.transform.preprocess(np.array(im, dtype=np.float32), return_tensors='pt')
                 item['label'] = label
                 item["pixel_values"] = item["pixel_values"].squeeze(0)
                 
