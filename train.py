@@ -1,6 +1,6 @@
 from torchvision import models, transforms
-from transformers import ViTImageProcessor, ViTForImageClassification, ViTConfig
-import clip
+from transformers import ViTImageProcessor, ViTForImageClassification, ViTConfig, CLIPVisionModelWithProjection, AutoProcessor, CLIPConfig
+#import clip
 from torch.utils.data import DataLoader
 from data import SameDifferentDataset, call_create_stimuli
 import torch.nn as nn
@@ -46,7 +46,11 @@ def train_model(args, model, device, data_loader, dataset_size, optimizer,
         save_model_epochs = [num_epochs - 1]
     else:
         save_model_epochs = np.linspace(0, num_epochs, save_model_freq, dtype=int)
-    log_preds_epochs = np.linspace(0, num_epochs, log_preds_freq, dtype=int)
+    
+    if log_preds_freq > 0:
+        log_preds_epochs = np.linspace(0, num_epochs, log_preds_freq, dtype=int)
+    else:
+        log_preds_epochs = -1
 
     criterion = nn.CrossEntropyLoss()
     
@@ -91,14 +95,14 @@ def train_model(args, model, device, data_loader, dataset_size, optimizer,
                     try:
                         inputs[fi, :] = features[f[fi]].to(device)
                     except KeyError:
-                        if model_type == 'vit':
+                        if 'vit' in model_type:
                             inputs = d['pixel_values'].squeeze(1).to(device)
                         else:
                             inputs = d['image'].to(device)
                         inputs[fi, :] = backbone(inputs)[fi, :]
                         features[f[fi]] = backbone(inputs)[fi, :]
             else:
-                if model_type == 'vit':
+                if 'vit' in model_type:
                     inputs = d['pixel_values'].squeeze(1).to(device)
                 else:
                     inputs = d['image'].to(device)
@@ -110,7 +114,7 @@ def train_model(args, model, device, data_loader, dataset_size, optimizer,
 
                 outputs = model(inputs)
 
-                if model_type == 'vit':
+                if 'vit' in model_type:
                     outputs = outputs.logits
 
                 loss = criterion(outputs, labels)
@@ -149,7 +153,7 @@ def train_model(args, model, device, data_loader, dataset_size, optimizer,
                 running_roc_auc = 0.0
 
                 for bi, (d, f) in enumerate(val_dataloader):
-                    if model_type == 'vit':
+                    if 'vit' in model_type:
                         inputs = d['pixel_values'].squeeze(1).to(device)
                     else:
                         inputs = d['image'].to(device)
@@ -162,7 +166,7 @@ def train_model(args, model, device, data_loader, dataset_size, optimizer,
                     labels = d['label'].to(device)
 
                     outputs = model(inputs)
-                    if model_type == 'vit':
+                    if 'vit' in model_type:
                         outputs = outputs.logits
 
                     loss = criterion(outputs, labels)
@@ -262,7 +266,7 @@ parser.add_argument('--pretrained', action='store_true', default=False,
 # Training arguments
 parser.add_argument('-td', '--train_datasets', nargs='+', required=False, 
                     help='Names of all stimulus subdirectories to draw train stimuli from.', 
-                        default=['OBJECTSALL'])
+                        default=['NOISE'])
 parser.add_argument('-vd','--val_datasets', nargs='+', required=False, 
                     default='all',
                     help='Names of all stimulus subdirectories to draw validation datasets from. \
@@ -288,6 +292,7 @@ parser.add_argument('--multiplier', type=int, default=1, help='Factor by which t
                     stimuli will be 64x64.')
 
 # Dataset size arguments
+parser.add_argument('--ood', action='store_true', default=False, help='use datasets with unfamiliar test/val objs')
 parser.add_argument('--n_train', type=int, default=6400, help='Size of training dataset to use.')
 parser.add_argument('--n_train_tokens', type=int, default=-1, help='Number of unique tokens to use \
                     in the training dataset. If -1, then the maximum number of tokens is used.')
@@ -431,7 +436,8 @@ int_to_label = {0: 'different', 1: 'same'}
 label_to_int = {'different': 0, 'same': 1}
 
 # Check arguments
-assert not (model_type == 'clip_rn' and cnn_size != 50)  # Only CLIP ResNet-50 is defined
+#assert not (model_type == 'clip_rn' and cnn_size != 50)  # Only CLIP ResNet-50 is defined
+assert not (model_type == 'clip_rn')  # Removing support for ResNet
 assert len(n_train_ood) == len(val_datasets_names)
 assert len(n_test_ood) == len(val_datasets_names)
 assert len(n_val_ood) == len(val_datasets_names)
@@ -507,7 +513,6 @@ if model_type == 'resnet':
     
 elif model_type == 'vit':
     model_string = 'vit_b{0}'.format(patch_size)
-    
     model_path = f'google/vit-base-patch{patch_size}-{im_size}-in21k'
 
     if pretrained:
@@ -530,14 +535,26 @@ elif model_type == 'vit':
             
 elif 'clip' in model_type:                
     if 'vit' in model_type:
-        model_string = model_string = 'clip_vit_b{0}'.format(patch_size)
+        model_string = 'clip_vit_b{0}'.format(patch_size)
+        model_path = f"openai/clip-vit-base-patch{patch_size}"
         
         if pretrained:
-            model, transform = clip.load(f'ViT-B/{patch_size}', device=device, download_root=args.clip_dir)
+            #model, transform = clip.load(f'ViT-B/{patch_size}', device=device, download_root=args.clip_dir)
+            model = CLIPVisionModelWithProjection.from_pretrained(
+                model_path, 
+                num_labels=2, 
+                id2label=int_to_label,
+                label2id=label_to_int)
         else:
-            sys.exit(1)
-        in_features = model.visual.proj.shape[1]
+            configuration = CLIPConfig(patch_size=patch_size, im_size=im_size)
+            model = CLIPVisionModelWithProjection(configuration)
+            
+        transform = AutoProcessor.from_pretrained(model_path)
+        
+        #in_features = model.visual.proj.shape[1]
     else:
+        sys.exit(1)  # removing support for ResNet
+        '''
         model_string = 'clip_resnet50'
         
         if pretrained:
@@ -545,14 +562,17 @@ elif 'clip' in model_type:
         else:
             sys.exit(1)
         in_features = model.visual.output_dim
+        '''
     
     if feature_extract:
         for name, param in model.visual.named_parameters():
             param.requires_grad = False
     
+    '''
     # Add classification head to vision encoder
     fc = nn.Linear(in_features, 2).to(device)
     model = nn.Sequential(model.visual, fc).float()
+    '''
 
 model = model.to(device)  # Move model to GPU if possible
 
@@ -595,51 +615,59 @@ if n_train_tokens == -1:
     n_unique_val = floor(n_unique * percent_val)
     n_unique_test = floor(n_unique * percent_test)
 else:
-    assert n_train_tokens <= n_unique - 2
-    n_unique_train = n_train_tokens
-    
-    remainder = n_unique - n_train_tokens
-    if n_val_tokens == -1:
-        if n_test_tokens == -1:
-            n_unique_val = remainder // 2
-            n_unique_test = remainder // 2
+    if args.ood:
+        assert n_train_tokens <= n_unique - 2
+        n_unique_train = n_train_tokens
+        
+        remainder = n_unique - n_train_tokens
+        if n_val_tokens == -1:
+            if n_test_tokens == -1:
+                n_unique_val = remainder // 2
+                n_unique_test = remainder // 2
+            else:
+                assert n_test_tokens < remainder
+                n_unique_val = remainder - n_test_tokens
+                n_unique_test = n_test_tokens
         else:
-            assert n_test_tokens < remainder
-            n_unique_val = remainder - n_test_tokens
-            n_unique_test = n_test_tokens
+            if n_test_tokens == -1:
+                assert n_val_tokens < remainder
+                n_unique_val = n_val_tokens
+                n_unique_test = remainder - n_val_tokens
+            else:
+                assert n_val_tokens + n_test_tokens <= remainder
+                n_unique_val = n_val_tokens
+                n_unique_test = n_test_tokens
     else:
-        if n_test_tokens == -1:
-            assert n_val_tokens < remainder
-            n_unique_val = n_val_tokens
-            n_unique_test = remainder - n_val_tokens
-        else:
-            assert n_val_tokens + n_test_tokens <= remainder
-            n_unique_val = n_val_tokens
-            n_unique_test = n_test_tokens
+        assert n_val_tokens == n_train_tokens
+        assert n_test_tokens == n_train_tokens
+        n_unique_train = n_train_tokens
+        n_unique_val = n_train_tokens
+        n_unique_test = n_train_tokens
             
 if n_devdis_tokens == -1:
     n_devdis_tokens = n_val_tokens
 
-if len(n_train_tokens_ood) == 0:
-    n_train_tokens_ood = [n_unique_train for _ in range(len(val_datasets_names))]
-elif len(n_train_tokens_ood) == 1:
-    n_train_tokens_ood = [int(n_train_tokens_ood[0]) for _ in range(len(val_datasets_names))]
-else:
-    assert len(n_train_tokens_ood) == len(val_datasets_names)
-    
-if len(n_val_tokens_ood) == 0:
-    n_val_tokens_ood = [n_unique_val for _ in range(len(val_datasets_names))]
-elif len(n_val_tokens_ood) == 1:
-    n_val_tokens_ood = [int(n_val_tokens_ood[0]) for _ in range(len(val_datasets_names))]
-else:
-    assert len(n_val_tokens_ood) == len(val_datasets_names)   
-    
-if len(n_test_tokens_ood) == 0:
-    n_test_tokens_ood = [n_unique_test for _ in range(len(val_datasets_names))]
-elif len(n_test_tokens_ood) == 1:
-    n_test_tokens_ood = [int(n_test_tokens_ood[0]) for _ in range(len(val_datasets_names))]
-else:
-    assert len(n_test_tokens_ood) == len(val_datasets_names) 
+if args.ood:
+    if len(n_train_tokens_ood) == 0:
+        n_train_tokens_ood = [n_unique_train for _ in range(len(val_datasets_names))]
+    elif len(n_train_tokens_ood) == 1:
+        n_train_tokens_ood = [int(n_train_tokens_ood[0]) for _ in range(len(val_datasets_names))]
+    else:
+        assert len(n_train_tokens_ood) == len(val_datasets_names)
+        
+    if len(n_val_tokens_ood) == 0:
+        n_val_tokens_ood = [n_unique_val for _ in range(len(val_datasets_names))]
+    elif len(n_val_tokens_ood) == 1:
+        n_val_tokens_ood = [int(n_val_tokens_ood[0]) for _ in range(len(val_datasets_names))]
+    else:
+        assert len(n_val_tokens_ood) == len(val_datasets_names)   
+        
+    if len(n_test_tokens_ood) == 0:
+        n_test_tokens_ood = [n_unique_test for _ in range(len(val_datasets_names))]
+    elif len(n_test_tokens_ood) == 1:
+        n_test_tokens_ood = [int(n_test_tokens_ood[0]) for _ in range(len(val_datasets_names))]
+    else:
+        assert len(n_test_tokens_ood) == len(val_datasets_names) 
 
 path_elements = [model_string, train_dataset_string, pos_string, aug_string, f'trainsize_{n_train}_{n_unique_train}-{n_unique_val}-{n_unique_test}']
 
