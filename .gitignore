@@ -3,3 +3,4 @@ Models/*
 __MACOSX/*
 *.DS_Store
 *.pth
+.ipynb_checkpoints/*
