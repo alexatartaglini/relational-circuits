@@ -55,7 +55,7 @@ def add_cache_hooks(model):
     hooks = []
     for i in range(0, 12):
         hooks.append(
-            model.vit.encoder.layer[i].attention.register_forward_hook(
+            model.vit.encoder.layer[i].attention.register_forward_hook( # Check this out
                 _get_activation("attn_update_" + str(i))
             )
         )
