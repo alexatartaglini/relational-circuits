@@ -1,0 +1,12 @@
+# Afterwards
+ssh -N -L 9514:172.20.216.3:9514 mlepori@ssh.ccv.brown.edu
+
+
+
+unset XDG_RUNTIME_DIR
+module load anaconda/3-5.2.0
+ipnport=$(shuf -i8000-9999 -n1)
+echo $ipnport
+ipnip=$(hostname -i)
+echo $ipnip
+jupyter-lab --no-browser --port=$ipnport --ip=$ipnip
