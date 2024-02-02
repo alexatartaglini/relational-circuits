@@ -201,7 +201,9 @@ def create_stimuli(k, n, objects, unaligned, patch_size, multiplier, im_size, st
         while n_total_pairs < n // 2:
             
             for o in objects:
-                possible_matches = [o2 for o2 in objects if o2 != o]
+                shape = o.split("-")[0]
+                texture = o.split("-")[-1][:-4]
+                possible_matches = [o2 for o2 in objects if (o2.split("-")[0] != shape and o2.split("-")[-1][:-4] != texture)]
                 match = random.choice(possible_matches)
                 
                 while (o, match) in pairs_per_obj[o]:
