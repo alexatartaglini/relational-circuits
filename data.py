@@ -100,8 +100,11 @@ class SameDifferentDataset(Dataset):
         return item, im_path
 
 
-def create_noise_image(o, im):
-    mu = int(o.split("-")[-1].split("_")[0].replace("mean", ""))
+def create_noise_image(o, im, split_channels=True):
+    if split_channels:
+        mu = [int(o.split("-")[i].split("_")[0].replace("mean", "")) for i in range(1, 4)]
+    else:
+        mu = int(o.split("-")[-1].split("_")[0].replace("mean", ""))
     sigma = int(o.split("-")[-1].split("_")[1][:-4].replace("var", ""))
 
     data = im.getdata()
@@ -111,12 +114,21 @@ def create_noise_image(o, im):
         if item[0] == 255 and item[1] == 255 and item[2] == 255:
             new_data.append(item)
         else:
-            noise = (
-                np.random.normal(loc=mu, scale=sigma, size=(1))
-                .clip(min=0, max=250)
-                .astype(np.uint8)
-            )
-            noise = np.repeat(noise, 3, axis=0)
+            if split_channels: 
+                noise = np.zeros(3, dtype=np.uint8)
+                for i in range(3):
+                    noise[i] = np.random.normal(
+                        loc=mu[i],
+                        scale=sigma,
+                        size=(1)
+                    ).clip(min=0, max=250).astype(np.uint8)
+            else:
+                noise = (
+                    np.random.normal(loc=mu, scale=sigma, size=(1))
+                    .clip(min=0, max=250)
+                    .astype(np.uint8)
+                )
+                noise = np.repeat(noise, 3, axis=0)
             new_data.append(tuple(noise))
 
     im.putdata(new_data)
@@ -252,6 +264,11 @@ def create_stimuli(
     """
     if n <= 0:
         return
+    
+    if stim_type == "NOISE_RGB":
+        split_channels = True
+    else:
+        split_channels = False
 
     random.shuffle(objects)
 
@@ -327,10 +344,20 @@ def create_stimuli(
                 range(k)
             )  # Select one object in the pair to change
             old_shape = pair[change_obj].split("-")[0]
-            old_texture = pair[change_obj].split("-")[-1][:-4]
+            
+            if split_channels:
+                old_texture = pair[change_obj].split("-")
+                old_texture = f"{old_texture[1]}-{old_texture[2]}-{old_texture[3][:-4]}"
+            else:
+                old_texture = pair[change_obj].split("-")[-1][:-4]
 
             match_shape = pair[not change_obj].split("-")[0]
-            match_texture = pair[not change_obj].split("-")[-1][:-4]
+            
+            if split_channels:
+                match_texture = pair[not change_obj].split("-")
+                match_texture = f"{match_texture[1]}-{match_texture[2]}-{match_texture[3][:-4]}"
+            else:
+                match_texture = pair[not change_obj].split("-")[-1][:-4]
 
             same_shape_obj = f"{match_shape}-{old_texture}.png"
             same_texture_obj = f"{old_shape}-{match_texture}.png"
@@ -431,11 +458,15 @@ def create_stimuli(
                     ]
 
                     # Sample noise
-                    create_noise_image(obj1, object_ims[0])
-                    create_noise_image(obj2, object_ims[1])
+                    create_noise_image(obj1, object_ims[0], split_channels=split_channels)
+                    create_noise_image(obj2, object_ims[1], split_channels=split_channels)
 
-                    obj1_props = obj1[:-4].split("-")  # List of shape, texture, color
-                    obj2_props = obj2[:-4].split("-")  # List of shape, texture, color
+                    obj1_props = obj1[:-4].split("-")  # List of shape, texture
+                    obj2_props = obj2[:-4].split("-")  # List of shape, texture
+                    
+                    if split_channels:
+                        obj1_props = [obj1_props[0], f"{obj1_props[1]}-{obj1_props[2]}-{obj1_props[3]}"]
+                        obj2_props = [obj2_props[0], f"{obj2_props[1]}-{obj2_props[2]}-{obj2_props[3]}"]
 
                     datadict[f"{condition}/{sd_class}/{stim_idx}.png"] = {
                         "sd-label": label_to_int[sd_class],
@@ -564,16 +595,7 @@ def call_create_stimuli(
         except FileExistsError:
             pass
 
-        if path_elements[1] == "SHAPES":
-            sd_classes = [
-                "same",
-                "different",
-                "different-shape",
-                "different-texture",
-                "different-color",
-            ]
-        else:
-            sd_classes = ["same", "different", "different-shape", "different-texture"]
+        sd_classes = ["same", "different", "different-shape", "different-texture"]
 
         for sd_class in sd_classes:
             try:
@@ -636,21 +658,21 @@ def call_create_stimuli(
 
 
 def create_source(
-    mode="NOISE",
     patch_size=32,
     texture_res=100,
     num_shapes=16,
     num_textures=16,
     num_colors=16,
     from_scratch=True,
+    split_channels=True
 ):
     """Creates and saves SHAPES/NOISE objects. If from_scratch=True, objects are first created by stamping out textures
     with shape outlines. In either case (from_scratch=True or False), objects in the "original" directory
     are then colored with num_colors different colors and saved in the directory labeled by patch_size.
     """
     if from_scratch:
-        if mode == "SHAPES":
-            stim_dir = f"stimuli/source/SHAPES/original/{patch_size}"
+        if split_channels:
+            stim_dir = f"stimuli/source/NOISE_RGB/{patch_size}"
         else:
             stim_dir = f"stimuli/source/NOISE/{patch_size}"
 
@@ -664,21 +686,32 @@ def create_source(
             stub += "/"
 
         shape_masks = glob.glob("stimuli/source/shapemasks/*.png")
-        if mode == "SHAPES":
-            textures = glob.glob("stimuli/source/textures/*.jpg")
+
+        if split_channels:
+            means = ["64-64-64",
+                     "192-64-64",
+                     "64-192-64",
+                     "64-64-192",
+                     "256-128-128",
+                     "128-256-128",
+                     "128-128-256",
+                     "64-192-192",
+                     "192-64-192",
+                     "192-192-64",
+                     "128-256-256",
+                     "256-128-256",
+                     "256-256-128",
+                     "0-128-256",
+                     "128-0-256",
+                     "256-128-0"]
+            variances = [10]
         else:
             means = [32, 96, 160, 224]
             variances = [1, 4, 16, 32]
-            textures = list(itertools.product(means, variances))
+        textures = list(itertools.product(means, variances))
 
         for texture_file in textures:
-            if mode == "SHAPES":
-                texture_name = texture_file.split("/")[-1][:-4]
-                texture = Image.open(texture_file).resize(
-                    (texture_res, texture_res), Image.NEAREST
-                )
-            elif mode == "NOISE":
-                texture_name = f"mean{texture_file[0]}_var{texture_file[1]}"
+            texture_name = f"mean{texture_file[0]}_var{texture_file[1]}"
 
             for shape_file in shape_masks:
                 shape_name = shape_file.split("/")[-1][:-4]
@@ -701,7 +734,16 @@ def create_source(
                 mask.putdata(new_data)
 
                 # Attain a randomly selected patch of texture
-                if mode == "NOISE":
+                if split_channels:
+                    noise = np.zeros((224, 224, 3), dtype=np.uint8)
+                    
+                    for i in range(3):
+                        noise[:, :, i] = np.random.normal(
+                            loc=int(texture_file[0].split("-")[i]),
+                            scale=texture_file[1],
+                            size=(224, 224)
+                        ).clip(min=0, max=250).astype(np.uint8)
+                else:
                     noise = (
                         np.random.normal(
                             loc=texture_file[0],
@@ -712,7 +754,7 @@ def create_source(
                         .astype(np.uint8)
                     )
                     noise = np.repeat(noise, 3, axis=2)
-                    texture = Image.fromarray(noise, "RGB")
+                texture = Image.fromarray(noise, "RGB")
 
                 bound = texture.size[0] - mask.size[0]
                 x = random.randint(0, bound)
@@ -724,48 +766,6 @@ def create_source(
                 base.paste(texture, mask=mask.split()[3])
 
                 base.convert("RGB").save(f"{stim_dir}/{shape_name}-{texture_name}.png")
-
-    if mode == "SHAPES":
-        try:
-            os.mkdir(f"stimuli/source/SHAPES/{patch_size}")
-        except FileExistsError:
-            pass
-
-        ims = glob.glob(f"stimuli/source/SHAPES/original/{patch_size}/*.png")
-
-        shapes = list(set([int(im.split("/")[-1].split("-")[0]) for im in ims]))
-        if num_shapes < len(shapes):
-            shapes = random.sample(shapes, num_shapes)
-
-        texture_select = list(range(0, 112))
-        bad_textures = [43, 90, 0, 89, 71, 14]
-        for b in bad_textures:
-            texture_select.remove(b)
-        textures = sorted(random.sample(texture_select, num_textures))
-
-        colors = sns.color_palette("hls", num_colors)
-        colors = [
-            colorsys.rgb_to_hsv(c[0] / 255.0, c[1] / 255.0, c[2] / 255.0)
-            for c in colors
-        ]
-
-        for im_file in ims:
-            im_shape = int(im_file.split("/")[-1].split("-")[0])
-            im_texture = int(im_file.split("/")[-1].split("-")[1][:-4])
-
-            if im_shape in shapes and im_texture in textures:
-                im = Image.open(im_file).convert("HSV")
-                H, S, V = im.split()
-
-                for c in range(num_colors):
-                    color = colors[c]
-                    H = H.point(lambda p: color[0] * 255 if p > 0 else 0)
-                    S = S.point(lambda p: color[1] * 255 + 20 if p > 0 else 0)
-                    V = V.point(lambda p: p + 3)
-
-                    new_im_file = f"stimuli/source/SHAPES/{patch_size}/{im_shape}-{im_texture}-{c}.png"  # STC
-                    new_im = Image.merge("HSV", (H, S, V)).convert("RGB")
-                    new_im.save(new_im_file)
 
 
 if __name__ == "__main__":
