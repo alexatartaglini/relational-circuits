@@ -871,11 +871,10 @@ else:
                 n_unique_val = n_val_tokens
                 n_unique_test = n_test_tokens
     else:
-        assert n_val_tokens == n_train_tokens
-        assert n_test_tokens == n_train_tokens
-        n_unique_train = n_train_tokens
-        n_unique_val = n_train_tokens
-        n_unique_test = n_train_tokens
+        if n_val_tokens == -1 and n_test_tokens == -1:
+            n_unique_train = n_train_tokens
+            n_unique_val = n_train_tokens
+            n_unique_test = n_train_tokens
 
 if n_devdis_tokens == -1:
     n_devdis_tokens = n_val_tokens
