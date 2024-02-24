@@ -875,6 +875,10 @@ else:
             n_unique_train = n_train_tokens
             n_unique_val = n_train_tokens
             n_unique_test = n_train_tokens
+        else:
+            n_unique_train = n_train_tokens
+            n_unique_val = n_val_tokens
+            n_unique_test = n_test_tokens
 
 if n_devdis_tokens == -1:
     n_devdis_tokens = n_val_tokens
