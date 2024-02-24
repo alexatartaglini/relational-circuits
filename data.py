@@ -231,7 +231,8 @@ def create_stimuli(
     rotation=False,
     scaling=False,
     buffer_factor=8,
-    all_combos=True,
+    all_combos=False,
+    compositional=False,
 ):
     """
     Creates n same_different stimuli with (n // 2) stimuli assigned to each class. If
@@ -287,59 +288,90 @@ def create_stimuli(
         coords = new_coords
         possible_coords = list(itertools.product(coords, repeat=k))
 
-    if all_combos:
-        pairs_per_obj = {o: [] for o in objects}
-        n_total_pairs = 0
+    pairs_per_obj = {o: [] for o in objects}
+    n_total_pairs = 0
 
-        all_different_pairs = {}
+    all_different_pairs = {}
+    i = 0
 
-        while n_total_pairs < n // 2:
-            for o in objects:
-                shape = o.split("-")[0]
+    while n_total_pairs < n // 2:
+        for o in objects:
+            shape = o.split("-")[0]
+            
+            if split_channels:
+                texture = o.split("-")
+                texture = f"{texture[1]}-{texture[2]}-{texture[3][:-4]}"
+                
+                if i == 0:  # totally different
+                    possible_matches = [o2 for o2 in objects if (o2.split("-")[0] != shape and 
+                                                                 f"{o2.split('-')[1]}-{o2.split('-')[2]}-{o2.split('-')[3][:-4]}"  != texture)]
+                elif i == 1:  # different shape
+                    possible_matches = [o2 for o2 in objects if (o2.split("-")[0] != shape and 
+                                                                 f"{o2.split('-')[1]}-{o2.split('-')[2]}-{o2.split('-')[3][:-4]}"  == texture)]
+                elif i == 2:  # different texture
+                    possible_matches = [o2 for o2 in objects if (o2.split("-")[0] == shape and 
+                                                                 f"{o2.split('-')[1]}-{o2.split('-')[2]}-{o2.split('-')[3][:-4]}"  != texture)]
+                    i = -1
+            else:
                 texture = o.split("-")[-1][:-4]
-                possible_matches = [o2 for o2 in objects if (o2.split("-")[0] != shape and o2.split("-")[-1][:-4] != texture)]
-                match = random.choice(possible_matches)
-
+                
+                if i == 0:
+                    possible_matches = [o2 for o2 in objects if (o2.split("-")[0] != shape and o2.split("-")[-1][:-4] != texture)]
+                elif i == 1:
+                    possible_matches = [o2 for o2 in objects if (o2.split("-")[0] != shape and o2.split("-")[-1][:-4] == texture)]
+                elif i == 2:
+                    possible_matches = [o2 for o2 in objects if (o2.split("-")[0] == shape and o2.split("-")[-1][:-4] != texture)]
+                    i = -1
+            
+            match = random.choice(possible_matches)
+            
+            if len(set(possible_matches) - set([p[-1] for p in pairs_per_obj[o]])) > 0:
                 while (o, match) in pairs_per_obj[o]:
                     match = random.choice(possible_matches)
 
-                pairs_per_obj[o].append((o, match))
-                n_total_pairs += 1
+            pairs_per_obj[o].append((o, match))
+            n_total_pairs += 1
+            i += 1
 
-                if n_total_pairs == n // 2:
-                    break
+            if n_total_pairs == n // 2:
+                break
 
-        idx = 0
-        for o in objects:
-            for pair in pairs_per_obj[o]:
-                all_different_pairs[pair] = {"coords": [], "idx": [idx]}
-                idx += 1
+    idx = 0
+    for o in objects:
+        for pair in pairs_per_obj[o]:
+            if pair in all_different_pairs.keys():
+                all_different_pairs[pair]["coords"].append(-1)
+                all_different_pairs[pair]["idx"].append(idx)
+            else:
+                all_different_pairs[pair] = {"coords": [-1], "idx": [idx]}
+            idx += 1
 
-            # all_same_pairs[tuple([o] * k)] = []
+        # all_same_pairs[tuple([o] * k)] = []
 
-        assert len(all_different_pairs.keys()) == n // 2
+    assert idx == n // 2
 
-        all_same_pairs = {}
-        all_different_shape_pairs = {}
-        all_different_texture_pairs = {}
+    all_same_pairs = {}
+    all_different_shape_pairs = {}
+    all_different_texture_pairs = {}
 
-        # Assign positions for object pairs and iterate over different-shape/different-texture/same
-        for pair in all_different_pairs.keys():
+    # Assign positions for object pairs and iterate over different-shape/different-texture/same
+    for pair in all_different_pairs.keys():
+        for i in range(len(all_different_pairs[pair]["coords"])):
             if not unaligned:
                 c = random.sample(possible_coords, k=k)
-                all_different_pairs[pair]["coords"].append(c)
+                all_different_pairs[pair]["coords"][i] = c
             else:  # Code needs to be altered for k > 2
                 c1 = tuple(random.sample(list(coords), k=2))
                 c2 = tuple(random.sample(list(coords), k=2))
-
+    
                 # Ensure there is no overlap
                 while (
                     c2[0] >= (c1[0] - obj_size) and c2[0] <= (c1[0] + obj_size)
                 ) and (c2[1] >= (c1[1] - obj_size) and c2[1] <= (c1[1] + obj_size)):
                     c2 = tuple(random.sample(list(coords), k=2))
-
-                all_different_pairs[pair]["coords"].append([c1, c2])
-
+    
+                all_different_pairs[pair]["coords"][i] = [c1, c2]
+    
             change_obj = random.choice(
                 range(k)
             )  # Select one object in the pair to change
@@ -350,7 +382,7 @@ def create_stimuli(
                 old_texture = f"{old_texture[1]}-{old_texture[2]}-{old_texture[3][:-4]}"
             else:
                 old_texture = pair[change_obj].split("-")[-1][:-4]
-
+    
             match_shape = pair[not change_obj].split("-")[0]
             
             if split_channels:
@@ -358,24 +390,24 @@ def create_stimuli(
                 match_texture = f"{match_texture[1]}-{match_texture[2]}-{match_texture[3][:-4]}"
             else:
                 match_texture = pair[not change_obj].split("-")[-1][:-4]
-
+    
             same_shape_obj = f"{match_shape}-{old_texture}.png"
             same_texture_obj = f"{old_shape}-{match_texture}.png"
-
+    
             same_shape_pair = [""] * k
             same_shape_pair[change_obj] = same_shape_obj
             same_shape_pair[not change_obj] = pair[not change_obj]
             same_texture_pair = [""] * k
             same_texture_pair[change_obj] = same_texture_obj
             same_texture_pair[not change_obj] = pair[not change_obj]
-
+    
             if (pair[not change_obj], pair[not change_obj]) in all_same_pairs.keys():
                 all_same_pairs[(pair[not change_obj], pair[not change_obj])][
                     "coords"
-                ].append(all_different_pairs[pair]["coords"][0])
+                ].append(all_different_pairs[pair]["coords"][i])
                 all_same_pairs[(pair[not change_obj], pair[not change_obj])][
                     "idx"
-                ].append(all_different_pairs[pair]["idx"][0])
+                ].append(all_different_pairs[pair]["idx"][i])
             else:
                 all_same_pairs[
                     (pair[not change_obj], pair[not change_obj])
@@ -392,7 +424,7 @@ def create_stimuli(
                 all_different_shape_pairs[
                     tuple(same_texture_pair)
                 ] = all_different_pairs[pair]
-
+    
             if tuple(same_shape_pair) in all_different_texture_pairs.keys():
                 all_different_texture_pairs[tuple(same_shape_pair)]["coords"].append(
                     all_different_pairs[pair]["coords"][0]
@@ -405,27 +437,36 @@ def create_stimuli(
                     tuple(same_shape_pair)
                 ] = all_different_pairs[pair]
 
-        # Create the stimuli generated above
-        object_ims_all = {}
+    # Create the stimuli generated above
+    object_ims_all = {}
 
-        for o in objects:
-            im = Image.open(f"stimuli/source/{stim_type}/{patch_size}/{o}").convert(
-                "RGB"
-            )
-            im = im.resize(
-                (
-                    obj_size - (obj_size // buffer_factor),
-                    obj_size - (obj_size // buffer_factor),
-                ),
-                Image.NEAREST,
-            )
+    for o in objects:
+        im = Image.open(f"stimuli/source/{stim_type}/{patch_size}/{o}").convert(
+            "RGB"
+        )
+        im = im.resize(
+            (
+                obj_size - (obj_size // buffer_factor),
+                obj_size - (obj_size // buffer_factor),
+            ),
+            Image.NEAREST,
+        )
 
-            object_ims_all[o] = im
+        object_ims_all[o] = im
 
-        datadict = (
-            {}
-        )  # For each image, stores: object positions (in the residual stream) & object colors/textures/shapes
+    datadict = (
+        {}
+    )  # For each image, stores: object positions (in the residual stream) & object colors/textures/shapes
 
+    if compositional:
+        items = zip(
+            ["same", "different"],
+            [
+                all_same_pairs,
+                all_different_pairs,
+            ],
+        )
+    else:
         items = zip(
             ["same", "different", "different-shape", "different-texture"],
             [
@@ -436,129 +477,129 @@ def create_stimuli(
             ],
         )
 
-        for sd_class, item_dict in items:
-            setting = f"{patch_dir}/{condition}/{sd_class}"
+    for sd_class, item_dict in items:
+        setting = f"{patch_dir}/{condition}/{sd_class}"
 
-            for key in item_dict.keys():
-                positions = item_dict[key]["coords"]
-                idxs = item_dict[key]["idx"]
+        for key in item_dict.keys():
+            positions = item_dict[key]["coords"]
+            idxs = item_dict[key]["idx"]
 
-                if len(positions) == 0:
-                    continue
+            if len(positions) == 0:
+                continue
 
-                for i in range(len(positions)):
-                    p = positions[i]
-                    stim_idx = idxs[i]
+            for i in range(len(positions)):
+                p = positions[i]
+                stim_idx = idxs[i]
 
-                    obj1 = key[0]
-                    obj2 = key[1]
-                    object_ims = [
-                        object_ims_all[obj1].copy(),
-                        object_ims_all[obj2].copy(),
-                    ]
+                obj1 = key[0]
+                obj2 = key[1]
+                object_ims = [
+                    object_ims_all[obj1].copy(),
+                    object_ims_all[obj2].copy(),
+                ]
 
-                    # Sample noise
-                    create_noise_image(obj1, object_ims[0], split_channels=split_channels)
-                    create_noise_image(obj2, object_ims[1], split_channels=split_channels)
+                # Sample noise
+                create_noise_image(obj1, object_ims[0], split_channels=split_channels)
+                create_noise_image(obj2, object_ims[1], split_channels=split_channels)
 
-                    obj1_props = obj1[:-4].split("-")  # List of shape, texture
-                    obj2_props = obj2[:-4].split("-")  # List of shape, texture
-                    
-                    if split_channels:
-                        obj1_props = [obj1_props[0], f"{obj1_props[1]}-{obj1_props[2]}-{obj1_props[3]}"]
-                        obj2_props = [obj2_props[0], f"{obj2_props[1]}-{obj2_props[2]}-{obj2_props[3]}"]
+                obj1_props = obj1[:-4].split("-")  # List of shape, texture
+                obj2_props = obj2[:-4].split("-")  # List of shape, texture
+                
+                if split_channels:
+                    obj1_props = [obj1_props[0], f"{obj1_props[1]}-{obj1_props[2]}-{obj1_props[3]}"]
+                    obj2_props = [obj2_props[0], f"{obj2_props[1]}-{obj2_props[2]}-{obj2_props[3]}"]
 
-                    datadict[f"{condition}/{sd_class}/{stim_idx}.png"] = {
-                        "sd-label": label_to_int[sd_class],
-                        "pos1": possible_coords.index((p[0][1], p[0][0])),
-                        "t1": obj1_props[1],
-                        "s1": obj1_props[0],
-                        "pos2": possible_coords.index((p[1][1], p[1][0])),
-                        "t2": obj2_props[1],
-                        "s2": obj2_props[0],
-                    }
+                datadict[f"{condition}/{sd_class}/{stim_idx}.png"] = {
+                    "sd-label": label_to_int[sd_class],
+                    "pos1": possible_coords.index((p[0][1], p[0][0])),
+                    "t1": obj1_props[1],
+                    "s1": obj1_props[0],
+                    "pos2": possible_coords.index((p[1][1], p[1][0])),
+                    "t2": obj2_props[1],
+                    "s2": obj2_props[0],
+                }
 
-                    if rotation:
-                        rotation_deg = random.randint(0, 359)
+                if rotation:
+                    rotation_deg = random.randint(0, 359)
 
-                        for o in range(len(object_ims)):
-                            rotated_obj_o = object_ims[o].rotate(
-                                rotation_deg,
-                                expand=1,
-                                fillcolor=(255, 255, 255),
-                                resample=Image.BICUBIC,
-                            )
+                    for o in range(len(object_ims)):
+                        rotated_obj_o = object_ims[o].rotate(
+                            rotation_deg,
+                            expand=1,
+                            fillcolor=(255, 255, 255),
+                            resample=Image.BICUBIC,
+                        )
 
-                            if rotated_obj_o.size != (obj_size, obj_size):
-                                scale_base_o = Image.new(
-                                    "RGB",
-                                    (max(rotated_obj_o.size), max(rotated_obj_o.size)),
-                                    (255, 255, 255),
-                                )
-                                scale_base_o.paste(
-                                    rotated_obj_o,
-                                    (
-                                        (
-                                            max(rotated_obj_o.size)
-                                            - rotated_obj_o.size[0]
-                                        )
-                                        // 2,
-                                        (
-                                            max(rotated_obj_o.size)
-                                            - rotated_obj_o.size[1]
-                                        )
-                                        // 2,
-                                    ),
-                                )
-                                rotated_obj_o = scale_base_o
-
+                        if rotated_obj_o.size != (obj_size, obj_size):
                             scale_base_o = Image.new(
-                                "RGB", (obj_size, obj_size), (255, 255, 255)
+                                "RGB",
+                                (max(rotated_obj_o.size), max(rotated_obj_o.size)),
+                                (255, 255, 255),
                             )
                             scale_base_o.paste(
-                                rotated_obj_o.resize(
-                                    (obj_size, obj_size), Image.NEAREST
-                                )
-                            )
-
-                            object_ims[o] = scale_base_o
-
-                    if scaling:
-                        scale_factor = random.uniform(0.45, 0.9)
-                        scaled_size = floor(obj_size * scale_factor)
-
-                        for o in range(len(object_ims)):
-                            scale_base = Image.new(
-                                "RGB", (obj_size, obj_size), (255, 255, 255)
-                            )
-                            scaled_obj_im = object_ims[o].resize(
-                                (scaled_size, scaled_size), Image.NEAREST
-                            )
-                            scale_base.paste(
-                                scaled_obj_im,
+                                rotated_obj_o,
                                 (
-                                    (obj_size - scaled_size) // 2,
-                                    (obj_size - scaled_size) // 2,
+                                    (
+                                        max(rotated_obj_o.size)
+                                        - rotated_obj_o.size[0]
+                                    )
+                                    // 2,
+                                    (
+                                        max(rotated_obj_o.size)
+                                        - rotated_obj_o.size[1]
+                                    )
+                                    // 2,
                                 ),
                             )
-                            object_ims[o] = scale_base
+                            rotated_obj_o = scale_base_o
 
-                    # Create blank image and paste objects
-                    base = Image.new("RGB", (im_size, im_size), (255, 255, 255))
+                        scale_base_o = Image.new(
+                            "RGB", (obj_size, obj_size), (255, 255, 255)
+                        )
+                        scale_base_o.paste(
+                            rotated_obj_o.resize(
+                                (obj_size, obj_size), Image.NEAREST
+                            )
+                        )
 
-                    for c in range(len(p)):
-                        box = [
-                            coord + random.randint(0, obj_size // buffer_factor)
-                            for coord in p[c]
-                        ]
-                        base.paste(object_ims[c], box=box)
+                        object_ims[o] = scale_base_o
 
-                    base.save(f"{setting}/{stim_idx}.png", quality=100)
-                    stim_idx += 1
+                if scaling:
+                    scale_factor = random.uniform(0.45, 0.9)
+                    scaled_size = floor(obj_size * scale_factor)
 
-            # Dump datadict
-        with open(f"{patch_dir}/{condition}/datadict.pkl", "wb") as handle:
-            pickle.dump(datadict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                    for o in range(len(object_ims)):
+                        scale_base = Image.new(
+                            "RGB", (obj_size, obj_size), (255, 255, 255)
+                        )
+                        scaled_obj_im = object_ims[o].resize(
+                            (scaled_size, scaled_size), Image.NEAREST
+                        )
+                        scale_base.paste(
+                            scaled_obj_im,
+                            (
+                                (obj_size - scaled_size) // 2,
+                                (obj_size - scaled_size) // 2,
+                            ),
+                        )
+                        object_ims[o] = scale_base
+
+                # Create blank image and paste objects
+                base = Image.new("RGB", (im_size, im_size), (255, 255, 255))
+
+                for c in range(len(p)):
+                    box = [
+                        coord + random.randint(0, obj_size // buffer_factor)
+                        for coord in p[c]
+                    ]
+                    base.paste(object_ims[c], box=box)
+
+                base.save(f"{setting}/{stim_idx}.png", quality=100)
+                stim_idx += 1
+
+        # Dump datadict
+    with open(f"{patch_dir}/{condition}/datadict.pkl", "wb") as handle:
+        pickle.dump(datadict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def call_create_stimuli(
@@ -576,6 +617,7 @@ def call_create_stimuli(
     n_train_tokens=-1,
     n_val_tokens=-1,
     n_test_tokens=-1,
+    compositional=False
 ):
     assert im_size % patch_size == 0
 
@@ -595,7 +637,10 @@ def call_create_stimuli(
         except FileExistsError:
             pass
 
-        sd_classes = ["same", "different", "different-shape", "different-texture"]
+        if compositional:
+            sd_classes = ["same", "different"]
+        else:
+            sd_classes = ["same", "different", "different-shape", "different-texture"]
 
         for sd_class in sd_classes:
             try:
@@ -612,11 +657,40 @@ def call_create_stimuli(
         if os.path.isfile(os.path.join(f"stimuli/source/{stim_dir}", f))
         and f != ".DS_Store"
     ]
+    
+    if compositional:
+        #assert n_val_tokens > 0
+        #assert n_test_tokens > 0
+
+        all_objs = [o.split("/")[-1][:-4].split("-") for o in object_files]
+        all_objs = [[o[0], f"{o[1]}-{o[2]}-{o[3]}"] for o in all_objs]
+        #shapes = list(set([o[0] for o in all_objs]))
+        textures = list(set([o[1] for o in all_objs]))
+        
+        sliding_idx = [ [(0 + i) % 16, (1 + i) % 16, (2 + i) % 16, (3 + i) % 16] for i in range(16) ]
+        
+        object_files_train = []
+        object_files_val = []
+        object_files_test = []
+        
+        for t in range(len(textures)):
+            train_idx = set(range(16)) - set(sliding_idx[t])
+            val_idx = sliding_idx[t][:2]
+            test_idx = sliding_idx[t][2:]
+            
+            object_files_train += [f"{i}-{textures[t]}.png" for i in train_idx]
+            object_files_val += [f"{i}-{textures[t]}.png" for i in val_idx]
+            object_files_test += [f"{i}-{textures[t]}.png" for i in test_idx]
+            
+    else:
+        object_files_train = object_files
+        object_files_val = object_files
+        object_files_test = object_files
 
     create_stimuli(
         k,
         n_train,
-        object_files,
+        object_files_train,
         unaligned,
         patch_size,
         multiplier,
@@ -626,11 +700,12 @@ def call_create_stimuli(
         "train",
         rotation=rotation,
         scaling=scaling,
+        compositional=compositional,
     )
     create_stimuli(
         k,
         n_val,
-        object_files,
+        object_files_val,
         unaligned,
         patch_size,
         multiplier,
@@ -640,11 +715,12 @@ def call_create_stimuli(
         "val",
         rotation=rotation,
         scaling=scaling,
+        compositional=compositional,
     )
     create_stimuli(
         k,
         n_test,
-        object_files,
+        object_files_test,
         unaligned,
         patch_size,
         multiplier,
@@ -654,6 +730,7 @@ def call_create_stimuli(
         "test",
         rotation=rotation,
         scaling=scaling,
+        compositional=compositional,
     )
 
 
@@ -830,7 +907,7 @@ if __name__ == "__main__":
         "--source",
         type=str,
         help="Folder to get stimuli from inside of the `source` folder",
-        default="NOISE",
+        default="NOISE_RGB",
     )
     parser.add_argument(
         "--rotation",
@@ -848,10 +925,21 @@ if __name__ == "__main__":
         "--create_source",
         action="store_true",
         default=False,
-        help="Create SHAPES source objects (rather than a same-different dataset).",
+        help="Create NOISE_RGB source objects (rather than a same-different dataset).",
+    )
+    parser.add_argument(
+        "--compositional",
+        action="store_true",
+        default=False,
+        help="Create compositional NOISE_RGB dataset.",
     )
 
     args = parser.parse_args()
+    
+    if args.compositional:
+        args.n_train_tokens = 192
+        args.n_val_tokens = 32
+        args.n_test_tokens = 32
 
     if args.create_source:
         create_source(patch_size=args.patch_size, num_colors=16)
@@ -894,4 +982,5 @@ if __name__ == "__main__":
             n_train_tokens=args.n_train_tokens,
             n_val_tokens=args.n_val_tokens,
             n_test_tokens=args.n_test_tokens,
+            compositional=args.compositional,
         )
