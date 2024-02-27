@@ -8,9 +8,10 @@ from torch.utils.data import Dataset
 import itertools
 from math import floor
 import pickle
-import seaborn as sns
-import colorsys
-import torch
+#import seaborn as sns
+#import colorsys
+#import torch
+import shutil
 
 
 abbreviated_ds = {
@@ -134,6 +135,7 @@ def create_noise_image(o, im, split_channels=True):
     im.putdata(new_data)
 
 
+'''
 def create_particular_stimulus(
     shape_1,
     shape_2,
@@ -215,6 +217,236 @@ def create_particular_stimulus(
     # Dump datadict
     with open(f"{outdir}/{filename}.pkl", "wb") as handle:
         pickle.dump(datadict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+'''
+def create_particular_stimulus(
+    shape_1,
+    shape_2,
+    texture_1,
+    texture_2,
+    position_1,
+    position_2,
+    buffer_factor=8,
+    im_size=224,
+    patch_size=32,
+    split_channels=True
+):
+    # Shape_1 is an integer
+    # Texture_1 is a mean_var pair
+    # position_1 is an x, y pair
+    coords = np.linspace(
+        0, im_size, num=(im_size // patch_size), endpoint=False, dtype=int
+    )
+    possible_coords = list(itertools.product(coords, repeat=2))
+
+    x_1 = coords[position_1[0]]
+    y_1 = coords[position_1[1]]
+    idx_1 = possible_coords.index((x_1, y_1))
+    x_2 = coords[position_2[0]]
+    y_2 = coords[position_2[1]]
+    idx_2 = possible_coords.index((x_2, y_2))
+
+    path1 = f"{shape_1}-{texture_1}.png"
+    path2 = f"{shape_2}-{texture_2}.png"
+
+    im1 = Image.open(f"stimuli/source/NOISE_RGB/{patch_size}/{path1}").convert("RGB")
+    im1 = im1.resize(
+        (
+            patch_size - (patch_size // buffer_factor),
+            patch_size - (patch_size // buffer_factor),
+        ),
+        Image.NEAREST,
+    )
+
+    im2 = Image.open(f"stimuli/source/NOISE_RGB/{patch_size}/{path2}").convert("RGB")
+    im2 = im2.resize(
+        (
+            patch_size - (patch_size // buffer_factor),
+            patch_size - (patch_size // buffer_factor),
+        ),
+        Image.NEAREST,
+    )
+
+    # Sample noise
+    create_noise_image(path1, im1, split_channels=split_channels)
+    create_noise_image(path2, im2, split_channels=split_channels)
+
+    # Create blank image and paste objects
+    base = Image.new("RGB", (im_size, im_size), (255, 255, 255))
+
+    box1 = [
+        coord + random.randint(0, patch_size // buffer_factor) for coord in [x_1, y_1]
+    ]
+    base.paste(im1, box=box1)
+
+    box2 = [
+        coord + random.randint(0, patch_size // buffer_factor) for coord in [x_2, y_2]
+    ]
+    base.paste(im2, box=box2)
+
+    return base
+
+
+def create_subspace_datasets(patch_size=32, mode="val", analysis="texture", split_channels=True, compositional=False,
+                            distractor=False):
+    path_elements = ["subspace", f"{analysis}_{patch_size}"]
+    stub = "stimuli/"
+    num_patch = 224 // patch_size
+
+    if analysis == "shape":
+        other_feat_str = "texture"
+    else:
+        other_feat_str = "shape"
+    
+    for element in path_elements:
+        try:
+            os.mkdir(stub + element)
+        except FileExistsError:
+            pass
+        
+        stub += element + "/"
+    
+    if compositional:
+        train_str = "trainsize_6400_192-32-32"
+    else:
+        train_str = "trainsize_6400_256-256-256"
+        
+    try:
+        os.mkdir(stub + train_str)
+    except FileExistsError:
+        pass
+    
+    try:
+        os.mkdir(stub + train_str + f"/{mode}")
+    except FileExistsError:
+        pass
+    
+    all_ims = glob.glob(f"stimuli/source/NOISE_RGB/{patch_size}/*.png")
+    all_ims = [im.split("/")[-1][:-4].split("-") for im in all_ims]
+    all_ims = [[im[0], f"{im[1]}-{im[2]}-{im[3]}"] for im in all_ims]
+    shapes = set([im[0] for im in all_ims])
+    textures = set([im[1] for im in all_ims])
+    feature_dict = {"shape": sorted(list(shapes)), "texture": sorted(list(textures))}
+        
+    stim_dir = f"stimuli/NOISE_RGB/aligned/N_{patch_size}/{train_str}"
+    base_imfiles = glob.glob(f"{stim_dir}/{mode}/different-{analysis}/*.png")
+    stim_dict = pickle.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
+    
+    for base in base_imfiles:
+        print(base)
+        im = Image.open(base)
+        base_path = os.path.join(*base.split("/")[-3:])
+        base_idx = base.split("/")[-1][:-4]
+        datadict = {}
+        
+        base_dir = f"{stub}{train_str}/{mode}/set_{base_idx}"
+        
+        try:
+            os.mkdir(base_dir)
+        except FileExistsError:
+            pass
+        
+        same_stim = stim_dict[f"{mode}/same/{base_idx}.png"]
+        diff_stim = stim_dict[base_path]
+        datadict["base.png"] = diff_stim.copy()
+        datadict["same.png"] = same_stim.copy()
+        
+        try:
+            datadict["base.png"].pop("sd-label")
+        except KeyError:
+            pass
+        
+        try:
+            datadict["same.png"].pop("sd-label")
+        except KeyError:
+            pass
+        
+        shutil.copy(base, f"{base_dir}/base.png")
+        shutil.copy(f"{stim_dir}/{mode}/same/{base_idx}.png", f"{base_dir}/same.png")
+        
+        if same_stim[f"{analysis[0]}1"] != diff_stim[f"{analysis[0]}1"]:  # Which object in the image is the edited one?
+            edited_idx = 1
+            not_edited_idx = 2
+        else:
+            edited_idx = 2
+            not_edited_idx = 1
+            
+        # For each texture/shape present in the "different" stimulus, create versions with every shape/texture
+        feature0 = diff_stim[f"{analysis[0]}{edited_idx}"]
+        feature1 = same_stim[f"{analysis[0]}1"]
+        
+        for feature, feature_str in zip([feature0, feature1], [f"{analysis}0", f"{analysis}1"]):
+            other_idx = 0
+            
+            for other_feat in feature_dict[other_feat_str]:
+                other_1 = diff_stim[f"{other_feat_str[0]}{not_edited_idx}"]
+                other_2 = other_feat
+                feat_1 = diff_stim[f"{analysis[0]}{not_edited_idx}"]
+                feat_2 = feature
+                position_1 = diff_stim[f"pos{not_edited_idx}"]
+                position_2 = diff_stim[f"pos{edited_idx}"]
+                
+                if analysis == "texture":
+                    dict_str = f"{feature_str}_shape{other_idx}.png"
+                else:
+                    dict_str = f"{feature_str}_texture{other_idx}.png"
+                    
+                datadict[dict_str] = {"pos1": position_1, f"{analysis[0]}1": feat_1, f"{other_feat_str[0]}1": other_1,
+                                      "pos2": position_2, f"{analysis[0]}2": feat_2, f"{other_feat_str[0]}2": other_2}
+
+                position_1 = [position_1 % num_patch, position_1 // num_patch]
+                position_2 = [position_2 % num_patch, position_2 // num_patch]
+
+                if analysis == "texture":
+                    im = create_particular_stimulus(other_1, other_2, feat_1, feat_2, position_1, position_2)
+                else:
+                    im = create_particular_stimulus(feat_1, feat_2, other_1, other_2, position_1, position_2)
+                    
+                im.save(f"{base_dir}/{dict_str}")
+                other_idx += 1
+        
+        if distractor:
+            if analysis == "texture":
+                distractor_feats = list(set(textures) - set([feature0, feature1]))
+            else:
+                distractor_feats = list(set(shapes) - set([feature0, feature1]))
+
+            np.random.shuffle(distractor_feats)
+            for d in range(len(distractor_feats)):
+                feature = distractor_feats[d]
+                #feature = np.random.choice(distractor_feats)
+                feature_str = f"{analysis}{d}"
+
+                other_idx = 0
+
+                for other_feat in feature_dict[other_feat_str]:
+                    other_1 = diff_stim[f"{other_feat_str[0]}{not_edited_idx}"]
+                    other_2 = other_feat
+                    feat_1 = diff_stim[f"{analysis[0]}{not_edited_idx}"]
+                    feat_2 = feature
+                    position_1 = diff_stim[f"pos{not_edited_idx}"]
+                    position_2 = diff_stim[f"pos{edited_idx}"]
+
+                    if analysis == "texture":
+                        dict_str = f"{feature_str}_shape{other_idx}.png"
+                    else:
+                        dict_str = f"{feature_str}_texture{other_idx}.png"
+
+                    datadict[dict_str] = {"pos1": position_1, f"{analysis[0]}1": feat_1, f"{other_feat_str[0]}1": other_1,
+                                          "pos2": position_2, f"{analysis[0]}2": feat_2, f"{other_feat_str[0]}2": other_2}
+
+                    position_1 = [position_1 % num_patch, position_1 // num_patch]
+                    position_2 = [position_2 % num_patch, position_2 // num_patch]
+
+                    if analysis == "texture":
+                        im = create_particular_stimulus(other_1, other_2, feat_1, feat_2, position_1, position_2)
+                    else:
+                        im = create_particular_stimulus(feat_1, feat_2, other_1, other_2, position_1, position_2)
+
+                    im.save(f"{base_dir}/{dict_str}")
+                    other_idx += 1
+                
+        with open(f"{base_dir}/datadict.pkl", "wb") as handle:
+            pickle.dump(datadict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def create_stimuli(
@@ -476,7 +708,7 @@ def create_stimuli(
                 all_different_texture_pairs,
             ],
         )
-
+        
     for sd_class, item_dict in items:
         setting = f"{patch_dir}/{condition}/{sd_class}"
 
@@ -597,7 +829,7 @@ def create_stimuli(
                 base.save(f"{setting}/{stim_idx}.png", quality=100)
                 stim_idx += 1
 
-        # Dump datadict
+    # Dump datadict
     with open(f"{patch_dir}/{condition}/datadict.pkl", "wb") as handle:
         pickle.dump(datadict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
