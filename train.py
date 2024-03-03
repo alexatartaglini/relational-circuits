@@ -554,6 +554,10 @@ parser.add_argument(
 
 args = parser.parse_args()
 
+# COMPOSITIONAL
+args.n_val_tokens = args.n_train_tokens
+args.n_test_tokens = 256 - args.n_train_tokens
+
 # Parse command line arguments
 wandb_proj = args.wandb_proj
 wandb_entity = args.wandb_entity

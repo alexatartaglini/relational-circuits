@@ -80,8 +80,6 @@ if args.mode == 'datasets':
             'lr': {'values': [1e-6]},
             'lr_scheduler': {'values': ['reduce_on_plateau', 'exponential']},
             'n_train_tokens': {'values': [32, 48, 96, 192]},
-            'n_val_tokens': {'values': [32, 48, 96, 192]},
-            'n_test_tokens': {'values': [224, 208, 160, 64]},
             'n_val': {'values': [6400]},
             'n_test': {'values': [6400]},
             'patch_size': {'values': [args.patch_size]},
