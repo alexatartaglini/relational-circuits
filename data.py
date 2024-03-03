@@ -286,7 +286,7 @@ def create_particular_stimulus(
     return base
 
 
-def create_subspace_datasets(patch_size=32, mode="val", analysis="texture", split_channels=True, compositional=False,
+def create_subspace_datasets(patch_size=32, mode="val", analysis="texture", split_channels=True, compositional=-1,
                             distractor=False):
     path_elements = ["subspace", f"{analysis}_{patch_size}"]
     stub = "stimuli/"
@@ -304,9 +304,9 @@ def create_subspace_datasets(patch_size=32, mode="val", analysis="texture", spli
             pass
         
         stub += element + "/"
-    
-    if compositional:
-        train_str = "trainsize_6400_192-32-32"
+
+    if compositional > 0:
+        train_str = f"trainsize_6400_{compositional}-{compositional}-{256 - compositional}"
     else:
         train_str = "trainsize_6400_256-256-256"
         
@@ -332,7 +332,6 @@ def create_subspace_datasets(patch_size=32, mode="val", analysis="texture", spli
     stim_dict = pickle.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
     
     for base in base_imfiles:
-        print(base)
         im = Image.open(base)
         base_path = os.path.join(*base.split("/")[-3:])
         base_idx = base.split("/")[-1][:-4]
@@ -464,7 +463,7 @@ def create_stimuli(
     scaling=False,
     buffer_factor=8,
     all_combos=False,
-    compositional=False,
+    compositional=-1,
 ):
     """
     Creates n same_different stimuli with (n // 2) stimuli assigned to each class. If
@@ -645,29 +644,31 @@ def create_stimuli(
                     (pair[not change_obj], pair[not change_obj])
                 ] = all_different_pairs[pair]
 
-            if tuple(same_texture_pair) in all_different_shape_pairs.keys():
-                all_different_shape_pairs[tuple(same_texture_pair)]["coords"].append(
-                    all_different_pairs[pair]["coords"][0]
-                )
-                all_different_shape_pairs[tuple(same_texture_pair)]["idx"].append(
-                    all_different_pairs[pair]["idx"][0]
-                )
-            else:
-                all_different_shape_pairs[
-                    tuple(same_texture_pair)
-                ] = all_different_pairs[pair]
+            if old_shape != match_shape:
+                if tuple(same_texture_pair) in all_different_shape_pairs.keys():
+                    all_different_shape_pairs[tuple(same_texture_pair)]["coords"].append(
+                        all_different_pairs[pair]["coords"][0]
+                    )
+                    all_different_shape_pairs[tuple(same_texture_pair)]["idx"].append(
+                        all_different_pairs[pair]["idx"][0]
+                    )
+                else:
+                    all_different_shape_pairs[
+                        tuple(same_texture_pair)
+                    ] = all_different_pairs[pair]
     
-            if tuple(same_shape_pair) in all_different_texture_pairs.keys():
-                all_different_texture_pairs[tuple(same_shape_pair)]["coords"].append(
-                    all_different_pairs[pair]["coords"][0]
-                )
-                all_different_texture_pairs[tuple(same_shape_pair)]["idx"].append(
-                    all_different_pairs[pair]["idx"][0]
-                )
-            else:
-                all_different_texture_pairs[
-                    tuple(same_shape_pair)
-                ] = all_different_pairs[pair]
+            if old_texture != match_texture:
+                if tuple(same_shape_pair) in all_different_texture_pairs.keys():
+                    all_different_texture_pairs[tuple(same_shape_pair)]["coords"].append(
+                        all_different_pairs[pair]["coords"][0]
+                    )
+                    all_different_texture_pairs[tuple(same_shape_pair)]["idx"].append(
+                        all_different_pairs[pair]["idx"][0]
+                    )
+                else:
+                    all_different_texture_pairs[
+                        tuple(same_shape_pair)
+                    ] = all_different_pairs[pair]
 
     # Create the stimuli generated above
     object_ims_all = {}
@@ -689,7 +690,17 @@ def create_stimuli(
     datadict = (
         {}
     )  # For each image, stores: object positions (in the residual stream) & object colors/textures/shapes
+    items = zip(
+        ["same", "different", "different-shape", "different-texture"],
+        [
+            all_same_pairs,
+            all_different_pairs,
+            all_different_shape_pairs,
+            all_different_texture_pairs,
+        ],
+    )
 
+    '''
     if compositional:
         items = zip(
             ["same", "different"],
@@ -708,11 +719,15 @@ def create_stimuli(
                 all_different_texture_pairs,
             ],
         )
+    '''
         
     for sd_class, item_dict in items:
         setting = f"{patch_dir}/{condition}/{sd_class}"
 
         for key in item_dict.keys():
+            if key[0] not in object_ims_all.keys() or key[1] not in object_ims_all.keys():
+                continue
+            
             positions = item_dict[key]["coords"]
             idxs = item_dict[key]["idx"]
 
@@ -849,7 +864,7 @@ def call_create_stimuli(
     n_train_tokens=-1,
     n_val_tokens=-1,
     n_test_tokens=-1,
-    compositional=False
+    compositional=-1
 ):
     assert im_size % patch_size == 0
 
@@ -869,10 +884,13 @@ def call_create_stimuli(
         except FileExistsError:
             pass
 
+        sd_classes = ["same", "different", "different-shape", "different-texture"]
+        '''
         if compositional:
             sd_classes = ["same", "different"]
         else:
             sd_classes = ["same", "different", "different-shape", "different-texture"]
+        '''
 
         for sd_class in sd_classes:
             try:
@@ -890,7 +908,7 @@ def call_create_stimuli(
         and f != ".DS_Store"
     ]
     
-    if compositional:
+    if compositional > -1:
         #assert n_val_tokens > 0
         #assert n_test_tokens > 0
 
@@ -899,7 +917,9 @@ def call_create_stimuli(
         #shapes = list(set([o[0] for o in all_objs]))
         textures = list(set([o[1] for o in all_objs]))
         
-        sliding_idx = [ [(0 + i) % 16, (1 + i) % 16, (2 + i) % 16, (3 + i) % 16] for i in range(16) ]
+        proportion_test = int(16*(n_test_tokens / 256))
+        #sliding_idx = [ [(0 + i) % 16, (1 + i) % 16, (2 + i) % 16, (3 + i) % 16] for i in range(16) ]
+        sliding_idx = [ [(j + i) % 16 for j in range(proportion_test)] for i in range(16) ]
         
         object_files_train = []
         object_files_val = []
@@ -907,8 +927,10 @@ def call_create_stimuli(
         
         for t in range(len(textures)):
             train_idx = set(range(16)) - set(sliding_idx[t])
-            val_idx = sliding_idx[t][:2]
-            test_idx = sliding_idx[t][2:]
+            #val_idx = sliding_idx[t][:2]
+            #test_idx = sliding_idx[t][2:]
+            val_idx = train_idx
+            test_idx = sliding_idx[t]
             
             object_files_train += [f"{i}-{textures[t]}.png" for i in train_idx]
             object_files_val += [f"{i}-{textures[t]}.png" for i in val_idx]
@@ -1161,17 +1183,20 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--compositional",
-        action="store_true",
-        default=False,
+        type=int,
+        default=-1,
         help="Create compositional NOISE_RGB dataset.",
     )
 
     args = parser.parse_args()
     
-    if args.compositional:
-        args.n_train_tokens = 192
-        args.n_val_tokens = 32
-        args.n_test_tokens = 32
+    if args.compositional > 0:
+        assert args.compositional % 16 == 0
+        assert args.compositional <= 240
+        
+        args.n_train_tokens = args.compositional
+        args.n_val_tokens = args.compositional
+        args.n_test_tokens = 256 - args.compositional
 
     if args.create_source:
         create_source(patch_size=args.patch_size, num_colors=16)
