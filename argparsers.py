@@ -1,0 +1,215 @@
+def model_train_parser(parser):
+    """Stores arguments for train.py argparser
+    """
+    parser.add_argument(
+        "--wandb_proj",
+        type=str,
+        default="same-different-transformers",
+        help="Name of WandB project to store the run in.",
+    )
+    parser.add_argument(
+        "--wandb_entity", type=str, default=None, help="Team to send run to."
+    )
+    parser.add_argument(
+        "--num_gpus", type=int, help="number of available GPUs.", default=1
+    )
+
+    # Model/architecture arguments
+    parser.add_argument(
+        "-m",
+        "--model_type",
+        help="Model to train: vit, clip_vit.",
+        type=str,
+        required=True,
+    )
+    parser.add_argument(
+        "--patch_size", type=int, default=32, help="Size of patch (eg. 16 or 32)."
+    )
+
+    parser.add_argument(
+        "--feature_extract",
+        action="store_true",
+        default=False,
+        help="Only train the final layer; freeze all other layers.",
+    )
+
+    parser.add_argument(
+        "--probe_layer", default=-1, help="Probe layer for frozer model"
+    )
+    parser.add_argument(
+        "--pretrained",
+        action="store_true",
+        default=False,
+        help="Use ImageNet pretrained models. If false, models are trained from scratch.",
+    )
+
+    # Training arguments
+    parser.add_argument(
+        "-ds",
+        "--dataset_str",
+        nargs="+",
+        required=False,
+        help="Names of the directory containing stimuli",
+        default=["NOISE"],
+    )
+    parser.add_argument(
+        "--optim",
+        type=str,
+        default="adamw",
+        help="Training optimizer, eg. adam, adamw, sgd.",
+    )
+    parser.add_argument("--lr", type=float, default=2e-6, help="Learning rate.")
+    parser.add_argument(
+        "--lr_scheduler", default="reduce_on_plateau", help="LR scheduler."
+    )
+    parser.add_argument(
+        "--num_epochs", type=int, default=30, help="Number of training epochs."
+    )
+    parser.add_argument(
+        "--batch_size", type=int, default=64, help="Train/validation batch size."
+    )
+    parser.add_argument(
+        "--seed", type=int, default=-1, help="If not given, picks random seed."
+    )
+
+    # Dataset size arguments
+    parser.add_argument(
+        "--n_train", type=int, default=6400, help="Size of training dataset to use."
+    )
+    parser.add_argument(
+        "--n_train_tokens",
+        type=int,
+        default=-1,
+        help="Number of unique tokens to use \
+                        in the training dataset. If -1, then the maximum number of tokens is used.",
+    )
+    parser.add_argument(
+        "--n_val_tokens",
+        type=int,
+        default=-1,
+        help="Number of unique tokens to use \
+                        in the validation dataset. If -1, then number tokens = (total - n_train_tokens) // 2.",
+    )
+    parser.add_argument(
+        "--n_test_tokens",
+        type=int,
+        default=-1,
+        help="Number of unique tokens to use \
+                        in the test dataset. If -1, then number tokens = (total - n_train_tokens) // 2.",
+    )
+    parser.add_argument(
+        "--n_val",
+        type=int,
+        default=-1,
+        help="Total # validation stimuli. Default: equal to n_train.",
+    )
+    parser.add_argument(
+        "--n_test",
+        type=int,
+        default=-1,
+        help="Total # test stimuli. Default: equal to n_train.",
+    )
+
+    # Paremeters for logging, storing models, etc.
+    parser.add_argument(
+        "--save_model_freq",
+        help="Number of times to save model checkpoints \
+                        throughout training. Saves are equally spaced from 0 to num_epoch.",
+        type=int,
+        default=-1,
+    )
+    parser.add_argument(
+        "--checkpoint",
+        help="Whether or not to store model checkpoints.",
+        action="store_true",
+        default=True,
+    )
+    parser.add_argument(
+        "--log_preds_freq",
+        help="Number of times to log model predictions \
+                        on test sets throughout training. Saves are equally spaced from 0 to num_epochs.",
+        type=int,
+        default=-1,
+    )
+    parser.add_argument(
+        "--wandb_cache_dir",
+        help="Directory for WandB cache. May need to be cleared \
+                        depending on available storage in order to store artifacts.",
+        default=None,
+    )
+
+    parser.add_argument(
+        "--wandb_run_dir",
+        help="Directory where WandB runs should be stored.",
+        default=None,
+    )
+
+    return parser.parse_args()
+
+
+def data_generation_parser(parser):
+    """ Stores arguments for data.py parser
+    """
+    parser.add_argument(
+        "--patch_size", type=int, default=32, help="Size of patch (eg. 16 or 32)."
+    )
+    parser.add_argument(
+        "--n_train",
+        type=int,
+        default=6400,
+        help="Total # of training stimuli. eg. if n_train=6400, a dataset"
+        "will be generated with 3200 same and 3200 different stimuli.",
+    )
+    parser.add_argument(
+        "--n_val",
+        type=int,
+        default=-1,
+        help="Total # validation stimuli. Default: equal to n_train.",
+    )
+    parser.add_argument(
+        "--n_test",
+        type=int,
+        default=-1,
+        help="Total # test stimuli. Default: equal to n_train.",
+    )
+    parser.add_argument(
+        "--n_train_tokens",
+        type=int,
+        default=256,
+        help="Number of unique tokens to use \
+                        in the training dataset. If -1, then the maximum number of tokens is used.",
+    )
+    parser.add_argument(
+        "--n_val_tokens",
+        type=int,
+        default=256,
+        help="Number of unique tokens to use \
+                        in the validation dataset. If -1, then number tokens = (total - n_train_tokens) // 2.",
+    )
+    parser.add_argument(
+        "--n_test_tokens",
+        type=int,
+        default=256,
+        help="Number of unique tokens to use \
+                        in the test dataset. If -1, then number tokens = (total - n_train_tokens) // 2.",
+    )
+    parser.add_argument(
+        "--source",
+        type=str,
+        help="Folder to get stimuli from inside of the `source` folder",
+        default="NOISE_RGB",
+    )
+    parser.add_argument(
+        "--create_source",
+        action="store_true",
+        default=False,
+        help="Create NOISE_RGB source objects (rather than a same-different dataset).",
+    )
+    parser.add_argument(
+        "--compositional",
+        action="store_true",
+        default=False,
+        help="Create compositional NOISE_RGB dataset.",
+    )
+
+    args = parser.parse_args()

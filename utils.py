@@ -4,10 +4,16 @@ import yaml
 import torch
 import glob
 import os
-from transformers import ViTImageProcessor, ViTForImageClassification, ViTConfig
-from torch.utils.data import DataLoader, random_split
+from transformers import (
+    ViTImageProcessor,
+    ViTForImageClassification,
+    ViTConfig,
+    CLIPVisionModelWithProjection,
+    CLIPConfig,
+    AutoProcessor,
+)
+import torch.nn as nn
 
-from data import SameDifferentProbeDataset, SameDifferentDataset
 
 def get_config():
     # Load config file from command line arg
@@ -69,73 +75,60 @@ def load_model_from_path(
     return model, transform
 
 
-def get_model(config):
-    """
-    :param pretrain: 'clip', 'imagenet', or 'random'
-    :param patch_size: 16 or 32
-    :param dataset: 'SHAPES' or 'NATURALISTIC'
-    """
+def load_model_for_training(
+    model_type,
+    patch_size,
+    im_size,
+    pretrained,
+    int_to_label,
+    label_to_int,
+    feature_extract=False,
+):
+    # Load models
+    if model_type == "vit":
+        model_string = "vit_b{0}".format(patch_size)
+        model_path = f"google/vit-base-patch{patch_size}-{im_size}-in21k"
 
-    config
-    model_path = glob.glob(
-        f'models/{config["pretrain"]}_vit/SHAPES/N_{config["patch_size"]}*.pth'
-    )[0]
-    model, transform = load_model_from_path(config, model_path=model_path)
-    return model, transform
+        if pretrained:
+            model = ViTForImageClassification.from_pretrained(
+                model_path, num_labels=2, id2label=int_to_label, label2id=label_to_int
+            )
+        else:
+            configuration = ViTConfig(patch_size=patch_size, image_size=im_size)
+            model = ViTForImageClassification(configuration)
 
+        transform = ViTImageProcessor(do_resize=False).from_pretrained(model_path)
 
-def create_datasets(config, transform):
-    trainset = SameDifferentProbeDataset(
-        config["train_dir"],
-        config["variable"],
-        transform,
-        max_tokens=50,
-    )
-    testset = SameDifferentProbeDataset(
-        config["test_dir"],
-        config["variable"],
-        transform,
-        max_tokens=50,
-    )
+        if feature_extract:
+            for name, param in model.named_parameters():
+                if "classifier" not in name:
+                    param.requires_grad = False
 
-    # Subsample training set
-    torch.manual_seed(config["seed"])
-    generator = torch.Generator().manual_seed(config["seed"])
+    elif "clip" in model_type:
+        model_string = "clip_vit_b{0}".format(patch_size)
+        model_path = f"openai/clip-vit-base-patch{patch_size}"
 
-    remainder = len(trainset) - (config["train_size"])
-    trainset, _ = random_split(
-        trainset,
-        [config["train_size"], remainder],
-        generator=generator,
-    )
+        if pretrained:
+            model = CLIPVisionModelWithProjection.from_pretrained(
+                model_path,
+                hidden_act="quick_gelu",
+                id2label=int_to_label,
+                label2id=label_to_int,
+            )
+        else:
+            configuration = CLIPConfig(patch_size=patch_size, im_size=im_size)
+            model = CLIPVisionModelWithProjection(configuration)
 
-    torch.manual_seed(config["seed"])
-    generator = torch.Generator().manual_seed(config["seed"])
-    remainder = len(testset) - (config["test_size"])
-    testset, _ = random_split(
-        testset,
-        [config["test_size"], remainder],
-        generator=generator,
-    )
+        transform = AutoProcessor.from_pretrained(model_path)
 
-    trainloader = DataLoader(
-        trainset, batch_size=config["batch_size"], shuffle=True, drop_last=True
-    )
-    testloader = DataLoader(testset, batch_size=config["batch_size"], shuffle=False)
-    return trainloader, testloader
+        # Replace projection with correct dimensions
+        in_features = model.visual_projection.in_features
+        # @mlepori edit, CLIPVisionModelWithProjection doesn't have a config option for the visual projection to have a bias
+        # so we shouldn't have one either
+        model.visual_projection = nn.Linear(in_features, 2, bias=False)
 
+    if feature_extract:
+        for name, param in model.vision_model.named_parameters():
+            param.requires_grad = False
 
-def get_sd_data(config, subset, transform):
-    testset = SameDifferentDataset(config["test_dir"], subset=subset, transform=transform)
-
-    torch.manual_seed(config["seed"])
-    generator = torch.Generator().manual_seed(config["seed"])
-
-    remainder = len(testset) - (config["test_size"])
-    testset, _ = random_split(
-        testset,
-        [config["test_size"], remainder],
-        generator=generator,
-    )
-    testloader = DataLoader(testset, batch_size=config["batch_size"], shuffle=False)
-    return testloader
+    return model, transform, model_string
