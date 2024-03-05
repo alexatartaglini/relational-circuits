@@ -4,3 +4,4 @@ __MACOSX/*
 *.DS_Store
 *.pth
 .ipynb_checkpoints/*
+stimuli/NOISE_RGB*.png
