@@ -30,6 +30,44 @@ def extract_features(features, backbone, data, files, in_features, device):
     return inputs
 
 
+def compute_auxiliary_loss(
+    hidden_states, data, probes, probe_layer, criterion, device="cuda"
+):
+    input_embeds = hidden_states[probe_layer]
+    hidden_dim = input_embeds.shape[-1]
+    probe_dim = int(hidden_dim / 2)
+
+    shape_probe, texture_probe = probes
+
+    states_1 = input_embeds[range(len(data["stream_1"])), data["stream_1"]]
+    states_2 = input_embeds[range(len(data["stream_2"])), data["stream_2"]]
+
+    shapes_1 = data["shape_1"]
+    shapes_2 = data["shape_2"]
+
+    textures_1 = data["texture_1"]
+    textures_2 = data["texture_2"]
+
+    states = torch.cat((states_1, states_2))
+    shapes = torch.cat((shapes_1, shapes_2)).to(device)
+    textures = torch.cat((textures_1, textures_2)).to(device)
+
+    # Run shape probe on half of the embedding, texture probe on other half, ensures nonoverlapping subspaces
+    shape_outs = shape_probe(states[:, :probe_dim])
+    texture_outs = texture_probe(states[:, probe_dim:])
+
+    aux_loss = (criterion(shape_outs, shapes) + criterion(texture_outs, textures),)
+
+    shape_acc = accuracy_score(shapes.to("cpu"), shape_outs.to("cpu").argmax(1))
+    texture_acc = accuracy_score(textures.to("cpu"), texture_outs.to("cpu").argmax(1))
+
+    return (
+        aux_loss,
+        shape_acc,
+        texture_acc,
+    )
+
+
 def train_model_epoch(
     args,
     model,
@@ -40,6 +78,8 @@ def train_model_epoch(
     features=None,
     device="cuda",
     backbone=None,
+    probes=None,
+    probe_layer=None,
 ):
     """Performs one training epoch
 
@@ -56,28 +96,41 @@ def train_model_epoch(
     """
     running_loss = 0.0
     running_acc = 0.0
+    running_shape_acc = 0.0
+    running_texture_acc = 0.0
 
     # Iterate over data.
     for bi, (d, f) in enumerate(data_loader):
         # Models are always ViTs, whose image preprocessors produce "pixel_values"
-        if args.extract_features:
+        if args.feature_extract:
             in_features = list(model.children())[0].in_features
             inputs = extract_features(features, backbone, d, f, in_features, device)
         else:
-            inputs = d["pixel_values"].squeeze(1).to(device)
+            inputs = d["pixel_values"].squeeze(1)
+            inputs = inputs.to(device)
         labels = d["label"].to(device)
 
         with torch.set_grad_enabled(True):
             optimizer.zero_grad()
-            outputs = model(inputs)
+            outputs = model(inputs, output_hidden_states=True)
 
             if "clip" in model_type:
-                outputs = outputs.image_embeds
-            elif not args.extract_features:
-                outputs = outputs.logits
+                output_logits = outputs.image_embeds
+            elif not args.feature_extract:
+                output_logits = outputs.logits
 
-            loss = criterion(outputs, labels)
-            acc = accuracy_score(labels.to("cpu"), outputs.to("cpu").argmax(1))
+            loss = criterion(output_logits, labels)
+            acc = accuracy_score(labels.to("cpu"), output_logits.to("cpu").argmax(1))
+
+            if args.auxiliary_loss:
+                aux_loss, shape_acc, texture_acc = compute_auxiliary_loss(
+                    outputs.hidden_states, d, probes, probe_layer, criterion
+                )
+
+                loss += aux_loss[0]
+
+                running_shape_acc += shape_acc * inputs.size(0)
+                running_texture_acc += texture_acc * inputs.size(0)
 
             loss.backward()
             optimizer.step()
@@ -90,6 +143,20 @@ def train_model_epoch(
     print("Epoch loss: {:.4f}".format(epoch_loss))
     print("Epoch accuracy: {:.4f}".format(epoch_acc))
     print()
+
+    if args.auxiliary_loss:
+        epoch_shape_acc = running_shape_acc / dataset_size
+        epoch_texture_acc = running_texture_acc / dataset_size
+        print("Epoch Shape accuracy: {:.4f}".format(epoch_shape_acc))
+        print("Epoch Texture accuracy: {:.4f}".format(epoch_texture_acc))
+        return {
+            "loss": epoch_loss,
+            "acc": epoch_acc,
+            "lr": optimizer.param_groups[0]["lr"],
+            "shape_acc": epoch_shape_acc,
+            "texture_acc": epoch_texture_acc,
+        }
+
     return {"loss": epoch_loss, "acc": epoch_acc, "lr": optimizer.param_groups[0]["lr"]}
 
 
@@ -145,6 +212,8 @@ def evaluation(
     features=None,
     device="cuda",
     backbone=None,
+    probes=None,
+    probe_layer=None,
     log_preds=False,
 ):
     """Evaluate model on val set
@@ -166,9 +235,11 @@ def evaluation(
         running_loss_val = 0.0
         running_acc_val = 0.0
         running_roc_auc = 0.0
+        running_shape_acc_val = 0.0
+        running_texture_acc_val = 0.0
 
         for bi, (d, f) in enumerate(val_dataloader):
-            if args.extract_features:
+            if args.feature_extract:
                 in_features = list(model.children())[0].in_features
                 inputs = extract_features(features, backbone, d, f, in_features, device)
             else:
@@ -176,16 +247,24 @@ def evaluation(
 
             labels = d["label"].to(device)
 
-            outputs = model(inputs)
+            outputs = model(inputs, output_hidden_states=True)
             if "clip" in model_type:
-                outputs = outputs.image_embeds
-            elif not args.extract_features:
-                outputs = outputs.logits
+                output_logits = outputs.image_embeds
+            elif not args.feature_extract:
+                output_logits = outputs.logits
 
-            loss = criterion(outputs, labels)
-            preds = outputs.argmax(1)
+            loss = criterion(output_logits, labels)
+            preds = output_logits.argmax(1)
             acc = accuracy_score(labels.to("cpu"), preds.to("cpu"))
-            roc_auc = roc_auc_score(labels.to("cpu"), outputs.to("cpu")[:, -1])
+            roc_auc = roc_auc_score(labels.to("cpu"), output_logits.to("cpu")[:, -1])
+
+            if args.auxiliary_loss:
+                aux_loss, shape_acc, texture_acc = compute_auxiliary_loss(
+                    outputs.hidden_states, d, probes, probe_layer, criterion
+                )
+                loss += aux_loss[0]
+                running_shape_acc_val += shape_acc * inputs.size(0)
+                running_texture_acc_val += texture_acc * inputs.size(0)
 
             running_acc_val += acc * inputs.size(0)
             running_loss_val += loss.detach().item() * inputs.size(0)
@@ -196,7 +275,6 @@ def evaluation(
         epoch_roc_auc = running_roc_auc / len(val_dataset)
 
         print()
-        print("Validation: ")
         print("Val loss: {:.4f}".format(epoch_loss_val))
         print("Val acc: {:.4f}".format(epoch_acc_val))
         print("Val ROC-AUC: {:.4f}".format(epoch_roc_auc))
@@ -204,6 +282,20 @@ def evaluation(
 
         if log_preds:
             log_preds(labels, preds, inputs, outputs, test_table, epoch)
+
+        if args.auxiliary_loss:
+            epoch_shape_acc_val = running_shape_acc_val / len(val_dataset)
+            epoch_texture_acc_val = running_texture_acc_val / len(val_dataset)
+            print("Val shape acc: {:.4f}".format(epoch_shape_acc_val))
+            print("Val texture acc: {:.4f}".format(epoch_texture_acc_val))
+            return {
+                "Label": "Val",
+                "loss": epoch_loss_val,
+                "acc": epoch_acc_val,
+                "roc_auc": epoch_roc_auc,
+                "shape_acc": epoch_shape_acc_val,
+                "texture_acc": epoch_texture_acc_val,
+            }
 
         return {
             "Label": "Val",
@@ -224,8 +316,12 @@ def train_model(
     log_dir,
     val_dataset,
     val_dataloader,
+    test_dataset,
+    test_dataloader,
     test_table,
     backbone=None,
+    probes=None,
+    probe_layer=None,
 ):
     """Main function implementing the training/eval loop
 
@@ -284,13 +380,21 @@ def train_model(
                 criterion,
                 optimizer,
                 dataset_size,
-                features,
-                device,
-                backbone,
+                features=features,
+                device=device,
+                backbone=backbone,
             )
         else:
             epoch_results = train_model_epoch(
-                model, data_loader, criterion, optimizer, dataset_size
+                args,
+                model,
+                data_loader,
+                criterion,
+                optimizer,
+                dataset_size,
+                device=device,
+                probes=probes,
+                probe_layer=probe_layer,
             )
 
         metric_dict = {
@@ -299,6 +403,10 @@ def train_model(
             "acc": epoch_results["acc"],
             "lr": epoch_results["lr"],
         }
+
+        if args.auxiliary_loss:
+            metric_dict["shape_acc"] = epoch_results["shape_acc"]
+            metric_dict["texture_acc"] = epoch_results["texture_acc"]
 
         # Save the model
         if epoch in save_model_epochs and args.checkpoint:
@@ -320,12 +428,14 @@ def train_model(
                 criterion,
                 epoch,
                 test_table,
-                features,
-                device,
-                backbone,
+                features=features,
+                device=device,
+                backbone=backbone,
                 log_preds=log_preds,
             )
         else:
+            print("\nValidation: \n")
+
             result = evaluation(
                 args,
                 model,
@@ -334,12 +444,34 @@ def train_model(
                 criterion,
                 epoch,
                 test_table,
+                device=device,
+                probes=probes,
+                probe_layer=probe_layer,
                 log_preds=log_preds,
             )
 
             metric_dict["val_loss"] = result["loss"]
             metric_dict["val_acc"] = result["acc"]
             metric_dict["val_roc_auc"] = result["roc_auc"]
+
+            print("\nOOD: \n")
+            result = evaluation(
+                args,
+                model,
+                test_dataloader,
+                test_dataset,
+                criterion,
+                epoch,
+                test_table,
+                device=device,
+                probes=probes,
+                probe_layer=probe_layer,
+                log_preds=log_preds,
+            )
+
+            metric_dict["test_loss"] = result["loss"]
+            metric_dict["test_acc"] = result["acc"]
+            metric_dict["test_roc_auc"] = result["roc_auc"]
 
         if log_preds:
             try:
@@ -395,6 +527,10 @@ if __name__ == "__main__":
     model_type = args.model_type
     patch_size = args.patch_size
     feature_extract = args.feature_extract
+
+    auxiliary_loss = args.auxiliary_loss
+    probe_layer = args.probe_layer
+
     pretrained = args.pretrained
 
     dataset_str = args.dataset_str
@@ -403,14 +539,12 @@ if __name__ == "__main__":
     lr_scheduler = args.lr_scheduler
     num_epochs = args.num_epochs
     batch_size = args.batch_size
+
     seed = args.seed
 
     n_train = args.n_train
-    n_train_tokens = args.n_train_tokens
     n_val = args.n_val
-    n_val_tokens = args.n_val_tokens
     n_test = args.n_test
-    n_test_tokens = args.n_test_tokens
 
     # make deterministic if given a seed
     if seed != -1:
@@ -467,6 +601,14 @@ if __name__ == "__main__":
     else:
         backbone = None
 
+    probes = None
+    if auxiliary_loss:
+        probes = utils.get_model_probes(
+            model,
+            num_shapes=16,  # Hardcode in number of shapes and textures for now
+            num_textures=16,
+        )
+
     # Create paths
     model_string += pretrained_string  # Indicate if model is pretrained
     model_string += fe_string  # Add 'fe' if applicable
@@ -494,17 +636,29 @@ if __name__ == "__main__":
     val_dataset = SameDifferentDataset(data_dir + "/val", transform=transform)
     val_dataloader = DataLoader(val_dataset, batch_size=1024, shuffle=True)
 
+    test_dataset = SameDifferentDataset(data_dir + "/test", transform=transform)
+    test_dataloader = DataLoader(test_dataset, batch_size=1024, shuffle=True)
+
+    if args.auxiliary_loss:
+        params = (
+            list(model.parameters())
+            + list(probes[0].parameters())
+            + list(probes[1].parameters())
+        )
+    else:
+        params = model.parameters()
+
     # Optimizer and scheduler
     if optim == "adamw":
-        optimizer = torch.optim.AdamW(model["classifier"].parameters(), lr=lr)
+        optimizer = torch.optim.AdamW(params, lr=lr)
     elif optim == "adam":
-        optimizer = torch.optim.Adam(model["classifier"].parameters(), lr=lr)
+        optimizer = torch.optim.Adam(params, lr=lr)
     elif optim == "sgd":
-        optimizer = torch.optim.SGD(model["classifier"].parameters(), lr=lr)
+        optimizer = torch.optim.SGD(params, lr=lr)
 
     if lr_scheduler == "reduce_on_plateau":
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=num_epochs // 5
+            optimizer, patience=num_epochs // 5, mode="max"
         )
     elif lr_scheduler == "exponential":
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay_rate)
@@ -577,7 +731,11 @@ if __name__ == "__main__":
         log_dir,
         val_dataset,
         val_dataloader,
+        test_dataset,
+        test_dataloader,
         test_table,
         backbone=backbone,
+        probes=probes,
+        probe_layer=args.probe_layer,
     )
     wandb.finish()

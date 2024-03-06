@@ -1,6 +1,5 @@
 def model_train_parser(parser):
-    """Stores arguments for train.py argparser
-    """
+    """Stores arguments for train.py argparser"""
     parser.add_argument(
         "--wandb_proj",
         type=str,
@@ -32,9 +31,14 @@ def model_train_parser(parser):
         default=False,
         help="Only train the final layer; freeze all other layers.",
     )
-
     parser.add_argument(
-        "--probe_layer", default=-1, help="Probe layer for frozer model"
+        "--auxiliary_loss",
+        action="store_true",
+        default=False,
+        help="Train with auxiliary loss to induce subspaces.",
+    )
+    parser.add_argument(
+        "--probe_layer", default=-1, type=int, help="Probe layer for auxiliary loss"
     )
     parser.add_argument(
         "--pretrained",
@@ -47,10 +51,9 @@ def model_train_parser(parser):
     parser.add_argument(
         "-ds",
         "--dataset_str",
-        nargs="+",
         required=False,
         help="Names of the directory containing stimuli",
-        default=["NOISE"],
+        default="NOISE_RGB/aligned/N_32/trainsize_6400_32-32-224",
     )
     parser.add_argument(
         "--optim",
@@ -75,27 +78,6 @@ def model_train_parser(parser):
     # Dataset size arguments
     parser.add_argument(
         "--n_train", type=int, default=6400, help="Size of training dataset to use."
-    )
-    parser.add_argument(
-        "--n_train_tokens",
-        type=int,
-        default=-1,
-        help="Number of unique tokens to use \
-                        in the training dataset. If -1, then the maximum number of tokens is used.",
-    )
-    parser.add_argument(
-        "--n_val_tokens",
-        type=int,
-        default=-1,
-        help="Number of unique tokens to use \
-                        in the validation dataset. If -1, then number tokens = (total - n_train_tokens) // 2.",
-    )
-    parser.add_argument(
-        "--n_test_tokens",
-        type=int,
-        default=-1,
-        help="Number of unique tokens to use \
-                        in the test dataset. If -1, then number tokens = (total - n_train_tokens) // 2.",
     )
     parser.add_argument(
         "--n_val",
@@ -148,8 +130,7 @@ def model_train_parser(parser):
 
 
 def data_generation_parser(parser):
-    """ Stores arguments for data.py parser
-    """
+    """Stores arguments for data.py parser"""
     parser.add_argument(
         "--patch_size", type=int, default=32, help="Size of patch (eg. 16 or 32)."
     )

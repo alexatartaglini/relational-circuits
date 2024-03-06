@@ -4,9 +4,9 @@ import os
 import random
 import argparse
 import glob
+import pickle as pkl
 from torch.utils.data import Dataset
 import itertools
-from math import floor
 import pickle
 from argparsers import data_generation_parser
 
@@ -18,11 +18,28 @@ label_to_int = {
     "different-texture": 0,
     "different-color": 0,
 }
+texture_to_int = {
+    "mean192-192-64_var10": 0,
+    "mean192-64-64_var10": 1,
+    "mean0-128-256_var10": 2,
+    "mean64-64-192_var10": 3,
+    "mean64-192-64_var10": 4,
+    "mean128-0-256_var10": 5,
+    "mean256-128-256_var10": 6,
+    "mean128-256-128_var10": 7,
+    "mean192-64-192_var10": 8,
+    "mean256-128-0_var10": 9,
+    "mean128-256-256_var10": 10,
+    "mean64-192-192_var10": 11,
+    "mean256-128-128_var10": 12,
+    "mean128-128-256_var10": 13,
+    "mean256-256-128_var10": 14,
+    "mean64-64-64_var10": 15,
+}
 
 
 def load_dataset(root_dir, subset=None):
-    """Helper function to load image datasets
-    """
+    """Helper function to load image datasets"""
     ims = {}
     idx = 0
 
@@ -32,11 +49,27 @@ def load_dataset(root_dir, subset=None):
         labels = subset
 
     for l in labels.keys():
+        # Load in data dict to get streams, textures, shapes
+        data_dictionary = os.path.join(root_dir, "datadict.pkl")
+        data_dictionary = pkl.load(open(data_dictionary, "rb"))
+
         im_paths = glob.glob("{0}/{1}/*.png".format(root_dir, labels[l]))
 
         for im in im_paths:
             pixels = Image.open(im)
-            im_dict = {"image": pixels, "image_path": im, "label": l}
+            dict_key = os.path.join(*im.split("/")[-3:])
+            im_dict = {
+                "image": pixels,
+                "image_path": im,
+                "label": l,
+                "stream_1": data_dictionary[dict_key]["pos1"],
+                "stream_2": data_dictionary[dict_key]["pos2"],
+                "shape_1": data_dictionary[dict_key]["s1"],
+                "shape_2": data_dictionary[dict_key]["s2"],
+                "texture_1": texture_to_int[data_dictionary[dict_key]["t1"]],
+                "texture_2": texture_to_int[data_dictionary[dict_key]["t2"]],
+            }
+
             ims[idx] = im_dict
             idx += 1
             pixels.close()
@@ -45,8 +78,8 @@ def load_dataset(root_dir, subset=None):
 
 
 class SameDifferentDataset(Dataset):
-    """Dataset object for same different judgements
-    """
+    """Dataset object for same different judgements"""
+
     def __init__(
         self,
         root_dir,
@@ -84,6 +117,14 @@ class SameDifferentDataset(Dataset):
                     )
                 item["label"] = label
                 item["pixel_values"] = item["pixel_values"].squeeze(0)
+
+        # Append auxiliary loss information into item dict
+        item["stream_1"] = self.im_dict[idx]["stream_1"]
+        item["stream_2"] = self.im_dict[idx]["stream_2"]
+        item["shape_1"] = int(self.im_dict[idx]["shape_1"])
+        item["shape_2"] = int(self.im_dict[idx]["shape_2"])
+        item["texture_1"] = self.im_dict[idx]["texture_1"]
+        item["texture_2"] = self.im_dict[idx]["texture_2"]
 
         return item, im_path
 
@@ -275,9 +316,9 @@ def generate_pairs(objects, n, possible_coords):
                     "idx"
                 ].append(all_different_pairs[pair]["idx"][i])
             else:
-                all_same_pairs[
-                    (pair[not change_obj], pair[not change_obj])
-                ] = all_different_pairs[pair]
+                all_same_pairs[(pair[not change_obj], pair[not change_obj])] = (
+                    all_different_pairs[pair]
+                )
 
             # Add same texture pair to all_different_shape_pairs, with same coords and and index as all_different pair
             if tuple(same_texture_pair) in all_different_shape_pairs.keys():
@@ -288,9 +329,9 @@ def generate_pairs(objects, n, possible_coords):
                     all_different_pairs[pair]["idx"][0]
                 )
             else:
-                all_different_shape_pairs[
-                    tuple(same_texture_pair)
-                ] = all_different_pairs[pair]
+                all_different_shape_pairs[tuple(same_texture_pair)] = (
+                    all_different_pairs[pair]
+                )
 
             # Add same shape pair to all_different_texture_pairs, with same coords and and index as all_different pair
             if tuple(same_shape_pair) in all_different_texture_pairs.keys():
@@ -301,9 +342,9 @@ def generate_pairs(objects, n, possible_coords):
                     all_different_pairs[pair]["idx"][0]
                 )
             else:
-                all_different_texture_pairs[
-                    tuple(same_shape_pair)
-                ] = all_different_pairs[pair]
+                all_different_texture_pairs[tuple(same_shape_pair)] = (
+                    all_different_pairs[pair]
+                )
     return (
         all_different_pairs,
         all_different_shape_pairs,
@@ -660,8 +701,7 @@ def create_source(
 
 
 if __name__ == "__main__":
-    """Driver function to create datasets
-    """
+    """Driver function to create datasets"""
     parser = argparse.ArgumentParser(description="Generate data.")
     args = data_generation_parser(parser)
 
