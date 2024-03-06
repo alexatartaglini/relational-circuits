@@ -5,4 +5,6 @@ __MACOSX/*
 *.pth
 .ipynb_checkpoints/*
 stimuli/NOISE_RGB/aligned/N_32/trainsize_6400_32-32-224/*
+stimuli/counting/NOISE_RGB/N_32/*
+
 wandb*
