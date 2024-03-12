@@ -328,31 +328,33 @@ def generate_pairs(objects, n, possible_coords):
                     all_different_pairs[pair]
                 )
 
-            # Add same texture pair to all_different_shape_pairs, with same coords and and index as all_different pair
-            if tuple(same_texture_pair) in all_different_shape_pairs.keys():
-                all_different_shape_pairs[tuple(same_texture_pair)]["coords"].append(
-                    all_different_pairs[pair]["coords"][0]
-                )
-                all_different_shape_pairs[tuple(same_texture_pair)]["idx"].append(
-                    all_different_pairs[pair]["idx"][0]
-                )
-            else:
-                all_different_shape_pairs[tuple(same_texture_pair)] = (
-                    all_different_pairs[pair]
-                )
+            if old_shape != match_shape:  # Different shapes objs
+                # Add same texture pair to all_different_shape_pairs, with same coords and and index as all_different pair
+                if tuple(same_texture_pair) in all_different_shape_pairs.keys():
+                    all_different_shape_pairs[tuple(same_texture_pair)]["coords"].append(
+                        all_different_pairs[pair]["coords"][0]
+                    )
+                    all_different_shape_pairs[tuple(same_texture_pair)]["idx"].append(
+                        all_different_pairs[pair]["idx"][0]
+                    )
+                else:
+                    all_different_shape_pairs[tuple(same_texture_pair)] = (
+                        all_different_pairs[pair]
+                    )
 
-            # Add same shape pair to all_different_texture_pairs, with same coords and and index as all_different pair
-            if tuple(same_shape_pair) in all_different_texture_pairs.keys():
-                all_different_texture_pairs[tuple(same_shape_pair)]["coords"].append(
-                    all_different_pairs[pair]["coords"][0]
-                )
-                all_different_texture_pairs[tuple(same_shape_pair)]["idx"].append(
-                    all_different_pairs[pair]["idx"][0]
-                )
-            else:
-                all_different_texture_pairs[tuple(same_shape_pair)] = (
-                    all_different_pairs[pair]
-                )
+            if old_texture != match_texture:  # Different texture objs
+                # Add same shape pair to all_different_texture_pairs, with same coords and and index as all_different pair
+                if tuple(same_shape_pair) in all_different_texture_pairs.keys():
+                    all_different_texture_pairs[tuple(same_shape_pair)]["coords"].append(
+                        all_different_pairs[pair]["coords"][0]
+                    )
+                    all_different_texture_pairs[tuple(same_shape_pair)]["idx"].append(
+                        all_different_pairs[pair]["idx"][0]
+                    )
+                else:
+                    all_different_texture_pairs[tuple(same_shape_pair)] = (
+                        all_different_pairs[pair]
+                    )
     return (
         all_different_pairs,
         all_different_shape_pairs,
