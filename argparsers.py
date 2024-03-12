@@ -75,7 +75,13 @@ def model_train_parser(parser):
         "--seed", type=int, default=-1, help="If not given, picks random seed."
     )
 
-    # Dataset size arguments
+    # Dataset arguments
+    parser.add_argument(
+        "--compositional",
+        type=int,
+        default=-1,
+        help="Create compositional NOISE_RGB dataset with specified # of combinations in train set.",
+    )
     parser.add_argument(
         "--n_train", type=int, default=6400, help="Size of training dataset to use."
     )
@@ -139,7 +145,7 @@ def model_train_parser(parser):
         help="Directory where WandB runs should be stored.",
         default=None,
     )
-
+    
     return parser.parse_args()
 
 
