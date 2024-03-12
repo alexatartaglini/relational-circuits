@@ -117,6 +117,7 @@ def create_noise_image(o, im, split_channels=True):
                         np.random.normal(loc=mu[i], scale=sigma, size=(1))
                         .clip(min=0, max=250)
                         .astype(np.uint8)
+                        .item()
                     )
             else:
                 noise = (
@@ -188,7 +189,9 @@ def generate_different_matches(objects, n):
             # Select match
             match = random.choice(possible_matches)
 
-            # @Alexa, not sure what's going on here, mind leaving a comment?
+            # Edit @Alexa: If there are possible matches left that have not yet been selected,
+            # select one (to ensure that as many possible pairs are represented in the dataset 
+            # as possible).
             if len(set(possible_matches) - set([p[-1] for p in pairs_per_obj[o]])) > 0:
                 while (o, match) in pairs_per_obj[o]:
                     match = random.choice(possible_matches)
@@ -321,7 +324,7 @@ def create_stimuli(
     patch_dir,
     condition,
     buffer_factor=8,
-    compositional=False,
+    compositional=-1,
 ):
     """
     Creates n same_different stimuli with (n // 2) stimuli assigned to each class. If
@@ -356,7 +359,7 @@ def create_stimuli(
         0, im_size, num=(im_size // patch_size), endpoint=False, dtype=int
     )
     new_coords = []
-    for i in range(0, len(coords) + 1):
+    for i in range(0, len(coords)):
         new_coords.append(coords[i])
 
     coords = new_coords
@@ -389,29 +392,21 @@ def create_stimuli(
         {}
     )  # For each image, stores: object positions (in the residual stream) & object colors/textures/shapes
 
-    if compositional:
-        items = zip(
-            ["same", "different"],
-            [
-                all_same_pairs,
-                all_different_pairs,
-            ],
-        )
-    else:
-        items = zip(
-            ["same", "different", "different-shape", "different-texture"],
-            [
-                all_same_pairs,
-                all_different_pairs,
-                all_different_shape_pairs,
-                all_different_texture_pairs,
-            ],
-        )
+    items = zip(
+        ["same", "different", "different-shape", "different-texture"],
+        [
+            all_same_pairs,
+            all_different_pairs,
+            all_different_shape_pairs,
+            all_different_texture_pairs,
+        ],
+    )
 
     for sd_class, item_dict in items:
         setting = f"{patch_dir}/{condition}/{sd_class}"
 
         for key in item_dict.keys():
+            
             positions = item_dict[key]["coords"]
             idxs = item_dict[key]["idx"]
 
@@ -419,53 +414,54 @@ def create_stimuli(
                 continue
 
             for i in range(len(positions)):
-                p = positions[i]
-                stim_idx = idxs[i]
-
-                obj1 = key[0]
-                obj2 = key[1]
-                object_ims = [
-                    object_ims_all[obj1].copy(),
-                    object_ims_all[obj2].copy(),
-                ]
-
-                # Sample noise
-                create_noise_image(obj1, object_ims[0], split_channels=True)
-                create_noise_image(obj2, object_ims[1], split_channels=True)
-
-                obj1_props = obj1[:-4].split("-")  # List of shape, texture
-                obj2_props = obj2[:-4].split("-")  # List of shape, texture
-
-                obj1_props = [
-                    obj1_props[0],
-                    f"{obj1_props[1]}-{obj1_props[2]}-{obj1_props[3]}",
-                ]
-                obj2_props = [
-                    obj2_props[0],
-                    f"{obj2_props[1]}-{obj2_props[2]}-{obj2_props[3]}",
-                ]
-
-                datadict[f"{condition}/{sd_class}/{stim_idx}.png"] = {
-                    "sd-label": label_to_int[sd_class],
-                    "pos1": possible_coords.index((p[0][1], p[0][0])),
-                    "t1": obj1_props[1],
-                    "s1": obj1_props[0],
-                    "pos2": possible_coords.index((p[1][1], p[1][0])),
-                    "t2": obj2_props[1],
-                    "s2": obj2_props[0],
-                }
-
-                # Create blank image and paste objects
-                base = Image.new("RGB", (im_size, im_size), (255, 255, 255))
-
-                for c in range(len(p)):
-                    box = [
-                        coord + random.randint(0, obj_size // buffer_factor)
-                        for coord in p[c]
+                if key[0] in object_ims_all.keys() and key[1] in object_ims_all.keys():
+                    p = positions[i]
+                    stim_idx = idxs[i]
+    
+                    obj1 = key[0]
+                    obj2 = key[1]
+                    object_ims = [
+                        object_ims_all[obj1].copy(),
+                        object_ims_all[obj2].copy(),
                     ]
-                    base.paste(object_ims[c], box=box)
-
-                base.save(f"{setting}/{stim_idx}.png", quality=100)
+    
+                    # Sample noise
+                    create_noise_image(obj1, object_ims[0], split_channels=True)
+                    create_noise_image(obj2, object_ims[1], split_channels=True)
+    
+                    obj1_props = obj1[:-4].split("-")  # List of shape, texture
+                    obj2_props = obj2[:-4].split("-")  # List of shape, texture
+    
+                    obj1_props = [
+                        obj1_props[0],
+                        f"{obj1_props[1]}-{obj1_props[2]}-{obj1_props[3]}",
+                    ]
+                    obj2_props = [
+                        obj2_props[0],
+                        f"{obj2_props[1]}-{obj2_props[2]}-{obj2_props[3]}",
+                    ]
+    
+                    datadict[f"{condition}/{sd_class}/{stim_idx}.png"] = {
+                        "sd-label": label_to_int[sd_class],
+                        "pos1": possible_coords.index((p[0][1], p[0][0])),
+                        "t1": obj1_props[1],
+                        "s1": obj1_props[0],
+                        "pos2": possible_coords.index((p[1][1], p[1][0])),
+                        "t2": obj2_props[1],
+                        "s2": obj2_props[0],
+                    }
+    
+                    # Create blank image and paste objects
+                    base = Image.new("RGB", (im_size, im_size), (255, 255, 255))
+    
+                    for c in range(len(p)):
+                        box = [
+                            coord + random.randint(0, obj_size // buffer_factor)
+                            for coord in p[c]
+                        ]
+                        base.paste(object_ims[c], box=box)
+    
+                    base.save(f"{setting}/{stim_idx}.png", quality=100)
                 stim_idx += 1
 
         # Dump datadict
@@ -474,7 +470,7 @@ def create_stimuli(
 
 
 def call_create_stimuli(
-    patch_size, n_train, n_val, n_test, patch_dir, im_size=224, compositional=False
+    patch_size, n_train, n_val, n_test, patch_dir, im_size=224, compositional=-1
 ):
     """Creates train, val, and test datasets
 
@@ -484,7 +480,7 @@ def call_create_stimuli(
     :param n_test: Test size
     :param patch_dir: Where to put datasets
     :param im_size: Total image size, defaults to 224
-    :param compositional: Whether to create a compositional dataset (hold out certain combos), defaults to False
+    :param compositional: Whether to create a compositional dataset (hold out certain combos), defaults to no
     """
     # Assert patch size and im size make sense
     assert im_size % patch_size == 0
@@ -494,10 +490,7 @@ def call_create_stimuli(
     for condition in ["train", "test", "val"]:
         os.makedirs("{0}/{1}".format(patch_dir, condition), exist_ok=True)
 
-        if compositional:
-            sd_classes = ["same", "different"]
-        else:
-            sd_classes = ["same", "different", "different-shape", "different-texture"]
+        sd_classes = ["same", "different", "different-shape", "different-texture"]
 
         for sd_class in sd_classes:
             os.makedirs(
@@ -514,15 +507,20 @@ def call_create_stimuli(
         and f != ".DS_Store"
     ]
 
-    if compositional:
+    if compositional > 0:
         all_objs = [o.split("/")[-1][:-4].split("-") for o in object_files]
         all_objs = [[o[0], f"{o[1]}-{o[2]}-{o[3]}"] for o in all_objs]
 
         textures = list(set([o[1] for o in all_objs]))
 
         # @Alexa, a bit confused here. Mind leaving a comment?
+        # Edit @Alexa: this is a set of sliding indices that I pass over the list of
+        # possible shapes to match with each texture; this then ensures that all
+        # unique shapes & textures are represented in the training/test data, but that
+        # only some combinations of them are seen during training. 
+        proportion_test = int(16*(256 - compositional) / 256)
         sliding_idx = [
-            [(0 + i) % 16, (1 + i) % 16, (2 + i) % 16, (3 + i) % 16] for i in range(16)
+            [(j + i) % 16 for j in range(proportion_test)] for i in range(16)
         ]
 
         object_files_train = []
@@ -669,8 +667,13 @@ if __name__ == "__main__":
         create_source(patch_size=args.patch_size, num_colors=16)
     else:  # Create same-different dataset
         aligned_str = "aligned"
+        
+        if args.compositional > 0:
+            args.n_train_tokens = args.compositional
+            args.n_val_tokens = args.compositional
+            args.n_test_tokens = 256 - args.compositional
 
-        patch_dir = f"stimuli/{args.source}/{aligned_str}/{args.patch_size}/"
+        patch_dir = f"stimuli/{args.source}/{aligned_str}/N_{args.patch_size}/"
         patch_dir += f"trainsize_{args.n_train}_{args.n_train_tokens}-{args.n_val_tokens}-{args.n_test_tokens}"
 
         # Default behavior for n_val, n_test
@@ -685,8 +688,5 @@ if __name__ == "__main__":
             args.n_val,
             args.n_test,
             patch_dir,
-            n_train_tokens=args.n_train_tokens,
-            n_val_tokens=args.n_val_tokens,
-            n_test_tokens=args.n_test_tokens,
             compositional=args.compositional,
         )

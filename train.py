@@ -93,47 +93,6 @@ def train_model_epoch(
     return {"loss": epoch_loss, "acc": epoch_acc, "lr": optimizer.param_groups[0]["lr"]}
 
 
-def log_preds(labels, preds, inputs, outputs, test_table, epoch):
-    """Logs all images that were predicted incorrectly to a WandB table
-
-    :param labels: Correct labels
-    :param preds: Predicted labels
-    :param inputs: Input images
-    :param outputs: Logits
-    :param test_table: WandB table to add error analysis to
-    :param epoch: Training epoch
-    """
-    # Log error examples
-    error_idx = (labels + preds == 1).cpu()
-    error_ims = inputs[error_idx, :, :, :]
-    error_paths = [
-        name.split("/")[-1] for name in np.asarray(list(f), dtype=object)[error_idx]
-    ]
-    error_preds = [int_to_label[p.item()] for p in preds[error_idx]]
-    error_truths = [int_to_label[l.item()] for l in labels[error_idx]]
-    same_scores = outputs[error_idx, 0]
-    diff_scores = outputs[error_idx, 1]
-    same_acc = len(labels[labels + preds == 2]) / len(labels[labels == 1])
-    diff_acc = (
-        len(labels[labels + preds == 0]) / len(labels[labels == 0])
-        if len(labels[labels == 0]) > 0
-        else 0
-    )
-    for j in range(len(same_scores)):
-        test_table.add_data(
-            epoch,
-            error_paths[j],
-            wandb.Image(error_ims[j, :, :, :]),
-            "Val",
-            error_preds[j],
-            error_truths[j],
-            same_scores[j],
-            diff_scores[j],
-            same_acc,
-            diff_acc,
-        )
-
-
 def evaluation(
     args,
     model,
@@ -141,11 +100,9 @@ def evaluation(
     val_dataset,
     criterion,
     epoch,
-    test_table,
     features=None,
     device="cuda",
     backbone=None,
-    log_preds=False,
 ):
     """Evaluate model on val set
 
@@ -155,11 +112,9 @@ def evaluation(
     :param val_dataset: Val dataset
     :param criterion: The loss function
     :param epoch: The epoch after which we are evaluation
-    :param test_table: WandB table that stores incorrect examples
     :param features: If probing a frozen model, caches features to probe so they don't need to be recomputed, defaults to None
     :param device: cuda or cpu, defaults to "cuda"
     :param backbone: If probing a frozen model, this is the visual feature extractor, defaults to None
-    :param log_preds: Whether to log incorrect predictions, defaults to False
     :return: results dictionary
     """
     with torch.no_grad():
@@ -202,9 +157,6 @@ def evaluation(
         print("Val ROC-AUC: {:.4f}".format(epoch_roc_auc))
         print()
 
-        if log_preds:
-            log_preds(labels, preds, inputs, outputs, test_table, epoch)
-
         return {
             "Label": "Val",
             "loss": epoch_loss_val,
@@ -224,7 +176,6 @@ def train_model(
     log_dir,
     val_dataset,
     val_dataloader,
-    test_table,
     backbone=None,
 ):
     """Main function implementing the training/eval loop
@@ -239,23 +190,16 @@ def train_model(
     :param log_dir: Directory to store results and logs
     :param val_dataloader: Val dataloader
     :param val_dataset: Val dataset
-    :param test_table: WandB table that stores incorrect examples
     :param backbone: If probing a frozen model, this is the visual feature extractor, defaults to None
     :return: Trained model
     """
     num_epochs = args.num_epochs
     save_model_freq = args.save_model_freq
-    log_preds_freq = args.log_preds_freq
 
     if save_model_freq == -1:
         save_model_epochs = [num_epochs - 1]
     else:
         save_model_epochs = np.linspace(0, num_epochs, save_model_freq, dtype=int)
-
-    if log_preds_freq > 0:
-        log_preds_epochs = np.linspace(0, num_epochs, log_preds_freq, dtype=int)
-    else:
-        log_preds_epochs = [-1]
 
     criterion = nn.CrossEntropyLoss()
 
@@ -309,8 +253,6 @@ def train_model(
         # Perform evaluations
         model.eval()
 
-        log_preds = epoch in log_preds_epochs
-
         if args.feature_extract:
             result = evaluation(
                 args,
@@ -319,11 +261,9 @@ def train_model(
                 val_dataset,
                 criterion,
                 epoch,
-                test_table,
                 features,
                 device,
                 backbone,
-                log_preds=log_preds,
             )
         else:
             result = evaluation(
@@ -333,33 +273,11 @@ def train_model(
                 val_dataset,
                 criterion,
                 epoch,
-                test_table,
-                log_preds=log_preds,
             )
 
             metric_dict["val_loss"] = result["loss"]
             metric_dict["val_acc"] = result["acc"]
             metric_dict["val_roc_auc"] = result["roc_auc"]
-
-        if log_preds:
-            try:
-                test_data_at = wandb.Artifact(
-                    f"test_errors_{run_id}_{epoch}", type="predictions"
-                )
-                test_data_at.add(test_table, "predictions")
-                wandb.run.log_artifact(test_data_at).wait()
-            except OSError:
-                try:
-                    shutil.rmtree(args.wandb_cache_dir)
-                    test_data_at = wandb.Artifact(
-                        f"test_errors_{run_id}_{epoch}", type="predictions"
-                    )
-                    test_data_at.add(test_table, "predictions")
-                    wandb.run.log_artifact(test_data_at).wait()
-                except OSError:
-                    pass
-                except TypeError:
-                    pass
 
         if scheduler:
             scheduler.step(
@@ -406,11 +324,7 @@ if __name__ == "__main__":
     seed = args.seed
 
     n_train = args.n_train
-    n_train_tokens = args.n_train_tokens
-    n_val = args.n_val
-    n_val_tokens = args.n_val_tokens
-    n_test = args.n_test
-    n_test_tokens = args.n_test_tokens
+    compositional = args.compositional
 
     # make deterministic if given a seed
     if seed != -1:
@@ -478,7 +392,15 @@ if __name__ == "__main__":
     os.makedirs(log_dir, exist_ok=True)
 
     # Construct train set + DataLoader
-    data_dir = os.path.join("stimuli", dataset_str)
+    if compositional > 0:
+        args.n_train_tokens = compositional
+        args.n_val_tokens = compositional
+        args.n_test_tokens = 256 - compositional
+
+    data_dir = os.path.join("stimuli", 
+                            dataset_str, 
+                            f"aligned/N_{patch_size}/trainsize_{n_train}_{args.n_train_tokens}-{args.n_val_tokens}-{args.n_test_tokens}")
+
     if not os.path.exists(data_dir):
         raise ValueError("Train Data Directory does not exist")
 
@@ -530,7 +452,7 @@ if __name__ == "__main__":
         "stimulus_size": "{0}x{0}".format(patch_size),
     }
 
-    # Initialize Weights & Biases project & table
+    # Initialize Weights & Biases project
     if wandb_entity:
         run = wandb.init(
             project=wandb_proj,
@@ -550,21 +472,6 @@ if __name__ == "__main__":
     run_id = wandb.run.id
     run.name = f"TRAIN_{model_string}_{dataset_str}_LR{lr}_{run_id}"
 
-    # Log model predictions
-    pred_columns = [
-        "Training Epoch",
-        "File Name",
-        "Image",
-        "Dataset",
-        "Prediction",
-        "Truth",
-        "Same Score",
-        "Different Score",
-        "Same Accuracy",
-        "Different Accuracy",
-    ]
-    test_table = wandb.Table(columns=pred_columns)
-
     # Run training loop + evaluations
     model = train_model(
         args,
@@ -577,7 +484,6 @@ if __name__ == "__main__":
         log_dir,
         val_dataset,
         val_dataloader,
-        test_table,
         backbone=backbone,
     )
     wandb.finish()
