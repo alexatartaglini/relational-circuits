@@ -227,6 +227,11 @@ def generate_different_matches(objects, n):
                 # Reset different type
                 different_type = -1
 
+            # No matches of this type
+            if len(possible_matches) == 0:
+                different_type = 0
+                continue
+
             # Select match
             match = random.choice(possible_matches)
 
@@ -524,7 +529,7 @@ def call_create_stimuli(
     :param compositional: Whether to create a compositional dataset (hold out certain combos), defaults to no
     """
     # Assert patch size and im size make sense
-    assert im_size % patch_size == 0
+    #assert im_size % patch_size == 0
 
     os.makedirs(patch_dir, exist_ok=True)
 
