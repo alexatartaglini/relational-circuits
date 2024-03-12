@@ -570,8 +570,8 @@ def call_create_stimuli(
 
         for t in range(len(textures)):
             train_idx = set(range(16)) - set(sliding_idx[t])
-            val_idx = sliding_idx[t][:2]
-            test_idx = sliding_idx[t][2:]
+            val_idx = train_idx
+            test_idx = sliding_idx[t]
 
             object_files_train += [f"{i}-{textures[t]}.png" for i in train_idx]
             object_files_val += [f"{i}-{textures[t]}.png" for i in val_idx]
