@@ -291,9 +291,9 @@ def train_model(
         print("getting features...")
 
         if args.model_type == "vit":
-            model_string = "vit_b{0}".format(args.patch_size)
+            model_string = "vit_b32"
         else:
-            model_string = "clip_vit_b{0}".format(args.patch_size)
+            model_string = "clip_vit_b32"
 
         features = pickle.load(open(f"features/{model_string}.pickle", "rb"))
 
@@ -463,7 +463,6 @@ if __name__ == "__main__":
     label_to_int = {"different": 0, "same": 1}
 
     # Check arguments
-    assert im_size % patch_size == 0
     assert model_type == "vit" or model_type == "clip_vit"
 
     # Create necessary directories
@@ -490,7 +489,7 @@ if __name__ == "__main__":
 
     model, transform, model_string = utils.load_model_for_training(
         model_type,
-        patch_size,
+        32,
         im_size,
         pretrained,
         int_to_label,
@@ -593,7 +592,6 @@ if __name__ == "__main__":
         "optimizer": optim,
         "num_epochs": num_epochs,
         "batch_size": batch_size,
-        "stimulus_size": "{0}x{0}".format(patch_size),
     }
 
     # Initialize Weights & Biases project

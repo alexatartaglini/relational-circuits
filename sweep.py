@@ -46,22 +46,10 @@ parser.add_argument(
     help="Use ImageNet pretrained models. If false, models are trained from scratch.",
 )
 parser.add_argument("--num_gpus", type=int, default=1, required=False)
-parser.add_argument(
-    "--mode",
-    help='Whether to sweep over "datasets" or over "tokens."',
-    default="datasets",
-)
 
 args = parser.parse_args()
 
-# Model formatted strings for sweep name
-model_names = {
-    "vit": f"ViT-B/{args.patch_size}",
-    "clip_vit": f"ViT-B/{args.patch_size}",
-}
-
-sweep_name = model_names[args.model_type] + " No Augmentations"
-
+sweep_name = f"ViT-B/32 ({args.patch_size}x{args.patch_size} Stimuli)"
 commands = ["${env}", "${interpreter}", "${program}"]
 
 if args.pretrained:
@@ -81,39 +69,35 @@ if args.feature_extract:
     commands += ["--feature_extract"]
     sweep_name += " Feature Extract"
 
-if args.mode == "tokens":
-    sweep_name = "Varying Tokens: " + sweep_name
-
 commands += ["${args}"]
 
-if args.mode == "datasets":
-    sweep_configuration = {
-        "method": "grid",
-        "program": "train.py",
-        "command": commands,
-        "name": sweep_name,
-        "parameters": {
-            "dataset_str": {
-                "values": [
-                    "NOISE_RGB",
-                ]
-            },
-            "lr": {"values": [1e-3]},  # [1e-6]},
-            "lr_scheduler": {"values": ["reduce_on_plateau", "exponential"]},
-            "n_val": {"values": [6400]},
-            "n_test": {"values": [6400]},
-            "patch_size": {"values": [args.patch_size, args.patch_size*2]},
-            "num_epochs": {"values": [20]},  # 200]},
-            "wandb_proj": {"values": [args.wandb_proj]},
-            "wandb_entity": {"values": [args.wandb_entity]},
-            "wandb_cache_dir": {"values": ["../.cache"]},
-            "num_gpus": {"values": [args.num_gpus]},
-            "model_type": {"values": [args.model_type]},
-            "batch_size": {"values": [128]},
-            "probe_layer": {"values": [args.probe_layer]},
-            "compositional": {"values": [224, 128, 64, 32]}
+sweep_configuration = {
+    "method": "grid",
+    "program": "train.py",
+    "command": commands,
+    "name": sweep_name,
+    "parameters": {
+        "dataset_str": {
+            "values": [
+                "NOISE_RGB",
+            ]
         },
-    }
+        "lr": {"values": [1e-3]},  # [1e-6]},
+        "lr_scheduler": {"values": ["reduce_on_plateau", "exponential"]},
+        "n_val": {"values": [6400]},
+        "n_test": {"values": [6400]},
+        "patch_size": {"values": [args.patch_size]},
+        "num_epochs": {"values": [20]},  # 200]},
+        "wandb_proj": {"values": [args.wandb_proj]},
+        "wandb_entity": {"values": [args.wandb_entity]},
+        "wandb_cache_dir": {"values": ["../.cache"]},
+        "num_gpus": {"values": [args.num_gpus]},
+        "model_type": {"values": [args.model_type]},
+        "batch_size": {"values": [128]},
+        "probe_layer": {"values": [args.probe_layer]},
+        "compositional": {"values": [224, 128, 64, 32]}
+    },
+}
 
 sweep_id = wandb.sweep(
     sweep=sweep_configuration, project=args.wandb_proj, entity=args.wandb_entity
