@@ -94,7 +94,10 @@ def load_model_for_training(
                 model_path, num_labels=2, id2label=int_to_label, label2id=label_to_int
             )
         else:
-            configuration = ViTConfig(patch_size=patch_size, image_size=im_size)
+            configuration = ViTConfig(
+                patch_size=patch_size,
+                image_size=im_size,
+            )
             model = ViTForImageClassification(configuration)
 
         transform = ViTImageProcessor(do_resize=False).from_pretrained(model_path)
@@ -132,3 +135,11 @@ def load_model_for_training(
             param.requires_grad = False
 
     return model, transform, model_string
+
+
+def get_model_probes(model, num_shapes, num_textures, device="cuda"):
+    probe_dim = int(model.config.hidden_size / 2)
+    return (
+        nn.Linear(probe_dim, num_shapes).to(device),
+        nn.Linear(probe_dim, num_textures).to(device),
+    )

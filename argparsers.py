@@ -1,6 +1,5 @@
 def model_train_parser(parser):
-    """Stores arguments for train.py argparser
-    """
+    """Stores arguments for train.py argparser"""
     parser.add_argument(
         "--wandb_proj",
         type=str,
@@ -32,9 +31,14 @@ def model_train_parser(parser):
         default=False,
         help="Only train the final layer; freeze all other layers.",
     )
-
     parser.add_argument(
-        "--probe_layer", default=-1, help="Probe layer for frozer model"
+        "--auxiliary_loss",
+        action="store_true",
+        default=False,
+        help="Train with auxiliary loss to induce subspaces.",
+    )
+    parser.add_argument(
+        "--probe_layer", default=-1, type=int, help="Probe layer for auxiliary loss"
     )
     parser.add_argument(
         "--pretrained",
@@ -48,8 +52,13 @@ def model_train_parser(parser):
         "-ds",
         "--dataset_str",
         required=False,
+<<<<<<< HEAD
         help="Name of the directory containing stimuli",
         default="NOISE_RGB",
+=======
+        help="Names of the directory containing stimuli",
+        default="NOISE_RGB/aligned/N_32/trainsize_6400_32-32-224",
+>>>>>>> 98464bc26211ae608fb24b3c4de4a1e98966d26f
     )
     parser.add_argument(
         "--optim",
@@ -140,8 +149,7 @@ def model_train_parser(parser):
 
 
 def data_generation_parser(parser):
-    """ Stores arguments for data.py parser
-    """
+    """Stores arguments for data.py parser"""
     parser.add_argument(
         "--patch_size", type=int, default=32, help="Size of patch (eg. 16 or 32)."
     )
