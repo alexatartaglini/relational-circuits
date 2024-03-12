@@ -52,13 +52,8 @@ def model_train_parser(parser):
         "-ds",
         "--dataset_str",
         required=False,
-<<<<<<< HEAD
         help="Name of the directory containing stimuli",
         default="NOISE_RGB",
-=======
-        help="Names of the directory containing stimuli",
-        default="NOISE_RGB/aligned/N_32/trainsize_6400_32-32-224",
->>>>>>> 98464bc26211ae608fb24b3c4de4a1e98966d26f
     )
     parser.add_argument(
         "--optim",
