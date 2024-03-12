@@ -95,14 +95,14 @@ if args.mode == "datasets":
         "parameters": {
             "dataset_str": {
                 "values": [
-                    "NOISE_RGB/aligned/N_32/trainsize_6400_32-32-224",
+                    "NOISE_RGB",
                 ]
             },
             "lr": {"values": [1e-3]},  # [1e-6]},
             "lr_scheduler": {"values": ["reduce_on_plateau", "exponential"]},
             "n_val": {"values": [6400]},
             "n_test": {"values": [6400]},
-            "patch_size": {"values": [args.patch_size]},
+            "patch_size": {"values": [args.patch_size, args.patch_size*2]},
             "num_epochs": {"values": [20]},  # 200]},
             "wandb_proj": {"values": [args.wandb_proj]},
             "wandb_entity": {"values": [args.wandb_entity]},
@@ -111,6 +111,7 @@ if args.mode == "datasets":
             "model_type": {"values": [args.model_type]},
             "batch_size": {"values": [128]},
             "probe_layer": {"values": [args.probe_layer]},
+            "compositional": {"values": [224, 128, 64, 32]}
         },
     }
 
