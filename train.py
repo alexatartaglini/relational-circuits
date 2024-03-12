@@ -170,12 +170,8 @@ def evaluation(
     features=None,
     device="cuda",
     backbone=None,
-<<<<<<< HEAD
-=======
     probes=None,
     probe_layer=None,
-    log_preds=False,
->>>>>>> 98464bc26211ae608fb24b3c4de4a1e98966d26f
 ):
     """Evaluate model on val set
 
@@ -239,26 +235,6 @@ def evaluation(
         print("Val ROC-AUC: {:.4f}".format(epoch_roc_auc))
         print()
 
-<<<<<<< HEAD
-=======
-        if log_preds:
-            log_preds(labels, preds, inputs, outputs, test_table, epoch)
-
-        if args.auxiliary_loss:
-            epoch_shape_acc_val = running_shape_acc_val / len(val_dataset)
-            epoch_texture_acc_val = running_texture_acc_val / len(val_dataset)
-            print("Val shape acc: {:.4f}".format(epoch_shape_acc_val))
-            print("Val texture acc: {:.4f}".format(epoch_texture_acc_val))
-            return {
-                "Label": "Val",
-                "loss": epoch_loss_val,
-                "acc": epoch_acc_val,
-                "roc_auc": epoch_roc_auc,
-                "shape_acc": epoch_shape_acc_val,
-                "texture_acc": epoch_texture_acc_val,
-            }
-
->>>>>>> 98464bc26211ae608fb24b3c4de4a1e98966d26f
         return {
             "Label": "Val",
             "loss": epoch_loss_val,
@@ -278,12 +254,8 @@ def train_model(
     log_dir,
     val_dataset,
     val_dataloader,
-<<<<<<< HEAD
-=======
     test_dataset,
     test_dataloader,
-    test_table,
->>>>>>> 98464bc26211ae608fb24b3c4de4a1e98966d26f
     backbone=None,
     probes=None,
     probe_layer=None,
@@ -383,17 +355,12 @@ def train_model(
                 val_dataset,
                 criterion,
                 epoch,
-<<<<<<< HEAD
                 features,
                 device,
                 backbone,
-=======
-                test_table,
                 features=features,
                 device=device,
                 backbone=backbone,
-                log_preds=log_preds,
->>>>>>> 98464bc26211ae608fb24b3c4de4a1e98966d26f
             )
         else:
             print("\nValidation: \n")
@@ -405,22 +372,15 @@ def train_model(
                 val_dataset,
                 criterion,
                 epoch,
-<<<<<<< HEAD
-=======
-                test_table,
                 device=device,
                 probes=probes,
                 probe_layer=probe_layer,
-                log_preds=log_preds,
->>>>>>> 98464bc26211ae608fb24b3c4de4a1e98966d26f
-            )
-
+                )
+            
             metric_dict["val_loss"] = result["loss"]
             metric_dict["val_acc"] = result["acc"]
             metric_dict["val_roc_auc"] = result["roc_auc"]
 
-<<<<<<< HEAD
-=======
             print("\nOOD: \n")
             result = evaluation(
                 args,
@@ -429,41 +389,18 @@ def train_model(
                 test_dataset,
                 criterion,
                 epoch,
-                test_table,
                 device=device,
                 probes=probes,
                 probe_layer=probe_layer,
-                log_preds=log_preds,
             )
 
             metric_dict["test_loss"] = result["loss"]
             metric_dict["test_acc"] = result["acc"]
             metric_dict["test_roc_auc"] = result["roc_auc"]
 
-        if log_preds:
-            try:
-                test_data_at = wandb.Artifact(
-                    f"test_errors_{run_id}_{epoch}", type="predictions"
-                )
-                test_data_at.add(test_table, "predictions")
-                wandb.run.log_artifact(test_data_at).wait()
-            except OSError:
-                try:
-                    shutil.rmtree(args.wandb_cache_dir)
-                    test_data_at = wandb.Artifact(
-                        f"test_errors_{run_id}_{epoch}", type="predictions"
-                    )
-                    test_data_at.add(test_table, "predictions")
-                    wandb.run.log_artifact(test_data_at).wait()
-                except OSError:
-                    pass
-                except TypeError:
-                    pass
-
->>>>>>> 98464bc26211ae608fb24b3c4de4a1e98966d26f
         if scheduler:
             scheduler.step(
-                metric_dict[f"val_acc"]
+                metric_dict["val_acc"]
             )  # Reduce LR based on validation accuracy
 
         # Log metrics
@@ -511,12 +448,7 @@ if __name__ == "__main__":
     seed = args.seed
 
     n_train = args.n_train
-<<<<<<< HEAD
-    compositional = args.compositional
-=======
-    n_val = args.n_val
-    n_test = args.n_test
->>>>>>> 98464bc26211ae608fb24b3c4de4a1e98966d26f
+    compositional = args.compositional 
 
     # make deterministic if given a seed
     if seed != -1:
@@ -696,12 +628,8 @@ if __name__ == "__main__":
         log_dir,
         val_dataset,
         val_dataloader,
-<<<<<<< HEAD
-=======
         test_dataset,
         test_dataloader,
-        test_table,
->>>>>>> 98464bc26211ae608fb24b3c4de4a1e98966d26f
         backbone=backbone,
         probes=probes,
         probe_layer=args.probe_layer,
