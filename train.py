@@ -15,6 +15,24 @@ from argparsers import model_train_parser
 os.chdir(sys.path[0])
 
 
+class EarlyStopper:
+    def __init__(self, patience=10, min_delta=0.0002):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.min_validation_loss = float("inf")
+
+    def __call__(self, validation_loss):
+        if (validation_loss + self.min_delta) < self.min_validation_loss:
+            self.min_validation_loss = validation_loss
+            self.counter = 0
+        elif (validation_loss + self.min_delta) > self.min_validation_loss:
+            self.counter += 1
+            if self.counter >= self.patience:
+                return True
+        return False
+
+
 def compute_auxiliary_loss(
     hidden_states, data, probes, probe_layer, criterion, device="cuda"
 ):
@@ -259,6 +277,7 @@ def train_model(
         save_model_epochs = np.linspace(0, num_epochs, save_model_freq, dtype=int)
 
     criterion = nn.CrossEntropyLoss()
+    early_stopping = EarlyStopper()
 
     for epoch in range(num_epochs):
         print("Epoch {}/{}".format(epoch + 1, num_epochs))
@@ -340,6 +359,12 @@ def train_model(
         # Log metrics
         print(metric_dict)
         wandb.log(metric_dict)
+        
+        if early_stopping(metric_dict["val_loss"]):
+            torch.save(
+                model.state_dict(), f"{log_dir}/model_{epoch}_{lr}_{wandb.run.id}.pth"
+            )
+            return model
 
     return model
 
@@ -502,7 +527,7 @@ if __name__ == "__main__":
 
     if lr_scheduler == "reduce_on_plateau":
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=num_epochs // 5, mode="max"
+            optimizer, patience=5, mode="max"
         )
     elif lr_scheduler == "exponential":
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay_rate)
@@ -519,7 +544,7 @@ if __name__ == "__main__":
         "learning_rate": lr,
         "scheduler": lr_scheduler,
         "decay_rate": decay_rate,
-        "patience": num_epochs // 5,
+        "patience": 5,
         "optimizer": optim,
         "num_epochs": num_epochs,
         "batch_size": batch_size,
