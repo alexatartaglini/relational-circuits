@@ -46,8 +46,8 @@ def model_train_parser(parser):
         "-ds",
         "--dataset_str",
         required=False,
-        help="Names of the directory containing stimuli",
-        default="NOISE_RGB/aligned/N_32/trainsize_6400_32-32-224",
+        help="Name of the directory containing stimuli",
+        default="NOISE_RGB",
     )
     parser.add_argument(
         "--optim",
@@ -69,6 +69,50 @@ def model_train_parser(parser):
         "--seed", type=int, default=-1, help="If not given, picks random seed."
     )
 
+    # Dataset arguments
+    parser.add_argument(
+        "--compositional",
+        type=int,
+        default=-1,
+        help="Create compositional NOISE_RGB dataset with specified # of combinations in train set.",
+    )
+    parser.add_argument(
+        "--n_train", type=int, default=6400, help="Size of training dataset to use."
+    )
+    parser.add_argument(
+        "--n_train_tokens",
+        type=int,
+        default=256,
+        help="Number of unique tokens to use \
+                        in the training dataset. If -1, then the maximum number of tokens is used.",
+    )
+    parser.add_argument(
+        "--n_val_tokens",
+        type=int,
+        default=256,
+        help="Number of unique tokens to use \
+                        in the validation dataset. If -1, then number tokens = (total - n_train_tokens) // 2.",
+    )
+    parser.add_argument(
+        "--n_test_tokens",
+        type=int,
+        default=256,
+        help="Number of unique tokens to use \
+                        in the test dataset. If -1, then number tokens = (total - n_train_tokens) // 2.",
+    )
+    parser.add_argument(
+        "--n_val",
+        type=int,
+        default=6400,
+        help="Total # validation stimuli. Default: equal to n_train.",
+    )
+    parser.add_argument(
+        "--n_test",
+        type=int,
+        default=6400,
+        help="Total # test stimuli. Default: equal to n_train.",
+    )
+
     # Paremeters for logging, storing models, etc.
     parser.add_argument(
         "--save_model_freq",
@@ -83,13 +127,6 @@ def model_train_parser(parser):
         default=True,
     )
     parser.add_argument(
-        "--log_preds_freq",
-        help="Number of times to log model predictions \
-                        on test sets throughout training. Saves are equally spaced from 0 to num_epochs.",
-        type=int,
-        default=-1,
-    )
-    parser.add_argument(
         "--wandb_cache_dir",
         help="Directory for WandB cache. May need to be cleared \
                         depending on available storage in order to store artifacts.",
@@ -101,7 +138,7 @@ def model_train_parser(parser):
         help="Directory where WandB runs should be stored.",
         default=None,
     )
-
+    
     return parser.parse_args()
 
 
@@ -211,10 +248,9 @@ def data_generation_parser(parser):
     )
     parser.add_argument(
         "--compositional",
-        action="store_true",
-        default=False,
-        help="Create compositional NOISE_RGB dataset.",
+        type=int,
+        default=-1,
+        help="Create compositional NOISE_RGB dataset with specified # of combinations in train set.",
     )
 
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()

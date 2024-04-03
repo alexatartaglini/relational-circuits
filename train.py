@@ -4,7 +4,6 @@ import torch.nn as nn
 import torch
 import argparse
 import os
-import shutil
 from sklearn.metrics import accuracy_score, roc_auc_score
 import wandb
 import numpy as np
@@ -92,7 +91,7 @@ def train_model_epoch(
         with torch.set_grad_enabled(True):
             optimizer.zero_grad()
 
-            if "clip" in model_type:
+            if "clip" in args.model_type:
                 # Extract logits from clip model
                 outputs = model(inputs, output_hidden_states=True)
                 output_logits = outputs.image_embeds
@@ -142,47 +141,6 @@ def train_model_epoch(
     return {"loss": epoch_loss, "acc": epoch_acc, "lr": optimizer.param_groups[0]["lr"]}
 
 
-def log_preds(labels, preds, inputs, outputs, test_table, epoch):
-    """Logs all images that were predicted incorrectly to a WandB table
-
-    :param labels: Correct labels
-    :param preds: Predicted labels
-    :param inputs: Input images
-    :param outputs: Logits
-    :param test_table: WandB table to add error analysis to
-    :param epoch: Training epoch
-    """
-    # Log error examples
-    error_idx = (labels + preds == 1).cpu()
-    error_ims = inputs[error_idx, :, :, :]
-    error_paths = [
-        name.split("/")[-1] for name in np.asarray(list(f), dtype=object)[error_idx]
-    ]
-    error_preds = [int_to_label[p.item()] for p in preds[error_idx]]
-    error_truths = [int_to_label[l.item()] for l in labels[error_idx]]
-    same_scores = outputs[error_idx, 0]
-    diff_scores = outputs[error_idx, 1]
-    same_acc = len(labels[labels + preds == 2]) / len(labels[labels == 1])
-    diff_acc = (
-        len(labels[labels + preds == 0]) / len(labels[labels == 0])
-        if len(labels[labels == 0]) > 0
-        else 0
-    )
-    for j in range(len(same_scores)):
-        test_table.add_data(
-            epoch,
-            error_paths[j],
-            wandb.Image(error_ims[j, :, :, :]),
-            "Val",
-            error_preds[j],
-            error_truths[j],
-            same_scores[j],
-            diff_scores[j],
-            same_acc,
-            diff_acc,
-        )
-
-
 def evaluation(
     args,
     model,
@@ -190,11 +148,9 @@ def evaluation(
     val_dataset,
     criterion,
     epoch,
-    test_table,
     device="cuda",
     probes=None,
     probe_layer=None,
-    log_preds=False,
 ):
     """Evaluate model on val set
 
@@ -204,10 +160,7 @@ def evaluation(
     :param val_dataset: Val dataset
     :param criterion: The loss function
     :param epoch: The epoch after which we are evaluation
-    :param test_table: WandB table that stores incorrect examples
     :param device: cuda or cpu, defaults to "cuda"
-    :param backbone: If probing a frozen model, this is the visual feature extractor, defaults to None
-    :param log_preds: Whether to log incorrect predictions, defaults to False
     :return: results dictionary
     """
     with torch.no_grad():
@@ -221,7 +174,7 @@ def evaluation(
             inputs = d["pixel_values"].squeeze(1).to(device)
             labels = d["label"].to(device)
 
-            if "clip" in model_type:
+            if "clip" in args.model_type:
                 # Extract logits from clip model
                 outputs = model(inputs, output_hidden_states=True)
                 output_logits = outputs.image_embeds
@@ -258,23 +211,6 @@ def evaluation(
         print("Val ROC-AUC: {:.4f}".format(epoch_roc_auc))
         print()
 
-        if log_preds:
-            log_preds(labels, preds, inputs, outputs, test_table, epoch)
-
-        if args.auxiliary_loss:
-            epoch_shape_acc_val = running_shape_acc_val / len(val_dataset)
-            epoch_texture_acc_val = running_texture_acc_val / len(val_dataset)
-            print("Val shape acc: {:.4f}".format(epoch_shape_acc_val))
-            print("Val texture acc: {:.4f}".format(epoch_texture_acc_val))
-            return {
-                "Label": "Val",
-                "loss": epoch_loss_val,
-                "acc": epoch_acc_val,
-                "roc_auc": epoch_roc_auc,
-                "shape_acc": epoch_shape_acc_val,
-                "texture_acc": epoch_texture_acc_val,
-            }
-
         return {
             "Label": "Val",
             "loss": epoch_loss_val,
@@ -296,7 +232,6 @@ def train_model(
     val_dataloader,
     test_dataset,
     test_dataloader,
-    test_table,
     probes=None,
     probe_layer=None,
 ):
@@ -312,23 +247,16 @@ def train_model(
     :param log_dir: Directory to store results and logs
     :param val_dataloader: Val dataloader
     :param val_dataset: Val dataset
-    :param test_table: WandB table that stores incorrect examples
     :param backbone: If probing a frozen model, this is the visual feature extractor, defaults to None
     :return: Trained model
     """
     num_epochs = args.num_epochs
     save_model_freq = args.save_model_freq
-    log_preds_freq = args.log_preds_freq
 
     if save_model_freq == -1:
         save_model_epochs = [num_epochs - 1]
     else:
         save_model_epochs = np.linspace(0, num_epochs, save_model_freq, dtype=int)
-
-    if log_preds_freq > 0:
-        log_preds_epochs = np.linspace(0, num_epochs, log_preds_freq, dtype=int)
-    else:
-        log_preds_epochs = [-1]
 
     criterion = nn.CrossEntropyLoss()
 
@@ -369,8 +297,6 @@ def train_model(
         # Perform evaluations
         model.eval()
 
-        log_preds = epoch in log_preds_epochs
-
         print("\nValidation: \n")
 
         result = evaluation(
@@ -380,11 +306,9 @@ def train_model(
             val_dataset,
             criterion,
             epoch,
-            test_table,
             device=device,
             probes=probes,
             probe_layer=probe_layer,
-            log_preds=log_preds,
         )
 
         metric_dict["val_loss"] = result["loss"]
@@ -399,40 +323,18 @@ def train_model(
             test_dataset,
             criterion,
             epoch,
-            test_table,
             device=device,
             probes=probes,
             probe_layer=probe_layer,
-            log_preds=log_preds,
         )
 
         metric_dict["test_loss"] = result["loss"]
         metric_dict["test_acc"] = result["acc"]
         metric_dict["test_roc_auc"] = result["roc_auc"]
 
-        if log_preds:
-            try:
-                test_data_at = wandb.Artifact(
-                    f"test_errors_{run_id}_{epoch}", type="predictions"
-                )
-                test_data_at.add(test_table, "predictions")
-                wandb.run.log_artifact(test_data_at).wait()
-            except OSError:
-                try:
-                    shutil.rmtree(args.wandb_cache_dir)
-                    test_data_at = wandb.Artifact(
-                        f"test_errors_{run_id}_{epoch}", type="predictions"
-                    )
-                    test_data_at.add(test_table, "predictions")
-                    wandb.run.log_artifact(test_data_at).wait()
-                except OSError:
-                    pass
-                except TypeError:
-                    pass
-
         if scheduler:
             scheduler.step(
-                metric_dict[f"val_acc"]
+                metric_dict["val_acc"]
             )  # Reduce LR based on validation accuracy
 
         # Log metrics
@@ -479,6 +381,9 @@ if __name__ == "__main__":
 
     seed = args.seed
 
+    n_train = args.n_train
+    compositional = args.compositional
+
     # make deterministic if given a seed
     if seed != -1:
         torch.manual_seed(seed)
@@ -492,7 +397,6 @@ if __name__ == "__main__":
     label_to_int = {"different": 0, "same": 1}
 
     # Check arguments
-    assert im_size % patch_size == 0
     assert model_type == "vit" or model_type == "clip_vit"
 
     # Create necessary directories
@@ -509,7 +413,7 @@ if __name__ == "__main__":
 
     model, transform, model_string = utils.load_model_for_training(
         model_type,
-        patch_size,
+        32,
         im_size,
         pretrained,
         int_to_label,
@@ -541,7 +445,17 @@ if __name__ == "__main__":
     os.makedirs(log_dir, exist_ok=True)
 
     # Construct train set + DataLoader
-    data_dir = os.path.join("stimuli", dataset_str)
+    if compositional > 0:
+        args.n_train_tokens = compositional
+        args.n_val_tokens = compositional
+        args.n_test_tokens = 256 - compositional
+
+    data_dir = os.path.join(
+        "stimuli",
+        dataset_str,
+        f"aligned/N_{patch_size}/trainsize_{n_train}_{args.n_train_tokens}-{args.n_val_tokens}-{args.n_test_tokens}",
+    )
+
     if not os.path.exists(data_dir):
         raise ValueError("Train Data Directory does not exist")
 
@@ -609,10 +523,9 @@ if __name__ == "__main__":
         "optimizer": optim,
         "num_epochs": num_epochs,
         "batch_size": batch_size,
-        "stimulus_size": "{0}x{0}".format(patch_size),
     }
 
-    # Initialize Weights & Biases project & table
+    # Initialize Weights & Biases project
     if wandb_entity:
         run = wandb.init(
             project=wandb_proj,
@@ -632,21 +545,6 @@ if __name__ == "__main__":
     run_id = wandb.run.id
     run.name = f"TRAIN_{model_string}_{dataset_str}_LR{lr}_{run_id}"
 
-    # Log model predictions
-    pred_columns = [
-        "Training Epoch",
-        "File Name",
-        "Image",
-        "Dataset",
-        "Prediction",
-        "Truth",
-        "Same Score",
-        "Different Score",
-        "Same Accuracy",
-        "Different Accuracy",
-    ]
-    test_table = wandb.Table(columns=pred_columns)
-
     # Run training loop + evaluations
     model = train_model(
         args,
@@ -661,7 +559,6 @@ if __name__ == "__main__":
         val_dataloader,
         test_dataset,
         test_dataloader,
-        test_table,
         probes=probes,
         probe_layer=args.probe_layer,
     )
