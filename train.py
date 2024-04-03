@@ -9,25 +9,11 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 import wandb
 import numpy as np
 import sys
-import pickle
 import utils
 from argparsers import model_train_parser
 
 
 os.chdir(sys.path[0])
-
-
-def extract_features(features, backbone, data, files, in_features, device):
-    # Either query for features for each image, or produce and store them using the backbone
-    inputs = torch.zeros((len(files), in_features)).to(device)
-    for fi in range(len(files)):
-        try:
-            inputs[fi, :] = features[files[fi]].to(device)
-        except KeyError:
-            inputs = data["pixel_values"].squeeze(1).to(device)
-            inputs[fi, :] = backbone(inputs)[fi, :]
-            features[files[fi]] = backbone(inputs)[fi, :]
-    return inputs
 
 
 def compute_auxiliary_loss(
@@ -75,9 +61,7 @@ def train_model_epoch(
     criterion,
     optimizer,
     dataset_size,
-    features=None,
     device="cuda",
-    backbone=None,
     probes=None,
     probe_layer=None,
 ):
@@ -89,7 +73,6 @@ def train_model_epoch(
     :param criterion: The loss function
     :param optimizer: Torch optimizer
     :param dataset_size: Number of examples in the trainset
-    :param features: If probing a frozen model, caches features to probe so they don't need to be recomputed, defaults to None
     :param device: cuda or cpu, defaults to "cuda"
     :param backbone: If probing a frozen model, this is the visual feature extractor, defaults to None
     :return: results dictionary
@@ -102,21 +85,20 @@ def train_model_epoch(
     # Iterate over data.
     for bi, (d, f) in enumerate(data_loader):
         # Models are always ViTs, whose image preprocessors produce "pixel_values"
-        if args.feature_extract:
-            in_features = list(model.children())[0].in_features
-            inputs = extract_features(features, backbone, d, f, in_features, device)
-        else:
-            inputs = d["pixel_values"].squeeze(1)
-            inputs = inputs.to(device)
+        inputs = d["pixel_values"].squeeze(1)
+        inputs = inputs.to(device)
         labels = d["label"].to(device)
 
         with torch.set_grad_enabled(True):
             optimizer.zero_grad()
-            outputs = model(inputs, output_hidden_states=True)
 
             if "clip" in model_type:
+                # Extract logits from clip model
+                outputs = model(inputs, output_hidden_states=True)
                 output_logits = outputs.image_embeds
-            elif not args.feature_extract:
+            else:
+                # Extarct logits from VitForImageClassification
+                outputs = model(inputs, output_hidden_states=True)
                 output_logits = outputs.logits
 
             loss = criterion(output_logits, labels)
@@ -209,9 +191,7 @@ def evaluation(
     criterion,
     epoch,
     test_table,
-    features=None,
     device="cuda",
-    backbone=None,
     probes=None,
     probe_layer=None,
     log_preds=False,
@@ -225,7 +205,6 @@ def evaluation(
     :param criterion: The loss function
     :param epoch: The epoch after which we are evaluation
     :param test_table: WandB table that stores incorrect examples
-    :param features: If probing a frozen model, caches features to probe so they don't need to be recomputed, defaults to None
     :param device: cuda or cpu, defaults to "cuda"
     :param backbone: If probing a frozen model, this is the visual feature extractor, defaults to None
     :param log_preds: Whether to log incorrect predictions, defaults to False
@@ -239,21 +218,20 @@ def evaluation(
         running_texture_acc_val = 0.0
 
         for bi, (d, f) in enumerate(val_dataloader):
-            if args.feature_extract:
-                in_features = list(model.children())[0].in_features
-                inputs = extract_features(features, backbone, d, f, in_features, device)
-            else:
-                inputs = d["pixel_values"].squeeze(1).to(device)
-
+            inputs = d["pixel_values"].squeeze(1).to(device)
             labels = d["label"].to(device)
 
-            outputs = model(inputs, output_hidden_states=True)
             if "clip" in model_type:
+                # Extract logits from clip model
+                outputs = model(inputs, output_hidden_states=True)
                 output_logits = outputs.image_embeds
-            elif not args.feature_extract:
+            else:
+                # Extarct logits from VitForImageClassification
+                outputs = model(inputs, output_hidden_states=True)
                 output_logits = outputs.logits
 
             loss = criterion(output_logits, labels)
+
             preds = output_logits.argmax(1)
             acc = accuracy_score(labels.to("cpu"), preds.to("cpu"))
             roc_auc = roc_auc_score(labels.to("cpu"), output_logits.to("cpu")[:, -1])
@@ -319,7 +297,6 @@ def train_model(
     test_dataset,
     test_dataloader,
     test_table,
-    backbone=None,
     probes=None,
     probe_layer=None,
 ):
@@ -355,47 +332,22 @@ def train_model(
 
     criterion = nn.CrossEntropyLoss()
 
-    if args.feature_extract:
-        # Get preloaded features if they exist, else create them now
-        features = {}  # Keep track of features
-        print("getting features...")
-
-        if args.model_type == "vit":
-            model_string = "vit_b{0}".format(args.patch_size)
-        else:
-            model_string = "clip_vit_b{0}".format(args.patch_size)
-
-        features = pickle.load(open(f"features/{model_string}.pickle", "rb"))
-
     for epoch in range(num_epochs):
         print("Epoch {}/{}".format(epoch + 1, num_epochs))
         print("-" * 10)
         model.train()
 
-        if args.feature_extract:
-            epoch_results = train_model_epoch(
-                args,
-                model,
-                data_loader,
-                criterion,
-                optimizer,
-                dataset_size,
-                features=features,
-                device=device,
-                backbone=backbone,
-            )
-        else:
-            epoch_results = train_model_epoch(
-                args,
-                model,
-                data_loader,
-                criterion,
-                optimizer,
-                dataset_size,
-                device=device,
-                probes=probes,
-                probe_layer=probe_layer,
-            )
+        epoch_results = train_model_epoch(
+            args,
+            model,
+            data_loader,
+            criterion,
+            optimizer,
+            dataset_size,
+            device=device,
+            probes=probes,
+            probe_layer=probe_layer,
+        )
 
         metric_dict = {
             "epoch": epoch,
@@ -419,59 +371,44 @@ def train_model(
 
         log_preds = epoch in log_preds_epochs
 
-        if args.feature_extract:
-            result = evaluation(
-                args,
-                model,
-                val_dataloader,
-                val_dataset,
-                criterion,
-                epoch,
-                test_table,
-                features=features,
-                device=device,
-                backbone=backbone,
-                log_preds=log_preds,
-            )
-        else:
-            print("\nValidation: \n")
+        print("\nValidation: \n")
 
-            result = evaluation(
-                args,
-                model,
-                val_dataloader,
-                val_dataset,
-                criterion,
-                epoch,
-                test_table,
-                device=device,
-                probes=probes,
-                probe_layer=probe_layer,
-                log_preds=log_preds,
-            )
+        result = evaluation(
+            args,
+            model,
+            val_dataloader,
+            val_dataset,
+            criterion,
+            epoch,
+            test_table,
+            device=device,
+            probes=probes,
+            probe_layer=probe_layer,
+            log_preds=log_preds,
+        )
 
-            metric_dict["val_loss"] = result["loss"]
-            metric_dict["val_acc"] = result["acc"]
-            metric_dict["val_roc_auc"] = result["roc_auc"]
+        metric_dict["val_loss"] = result["loss"]
+        metric_dict["val_acc"] = result["acc"]
+        metric_dict["val_roc_auc"] = result["roc_auc"]
 
-            print("\nOOD: \n")
-            result = evaluation(
-                args,
-                model,
-                test_dataloader,
-                test_dataset,
-                criterion,
-                epoch,
-                test_table,
-                device=device,
-                probes=probes,
-                probe_layer=probe_layer,
-                log_preds=log_preds,
-            )
+        print("\nOOD: \n")
+        result = evaluation(
+            args,
+            model,
+            test_dataloader,
+            test_dataset,
+            criterion,
+            epoch,
+            test_table,
+            device=device,
+            probes=probes,
+            probe_layer=probe_layer,
+            log_preds=log_preds,
+        )
 
-            metric_dict["test_loss"] = result["loss"]
-            metric_dict["test_acc"] = result["acc"]
-            metric_dict["test_roc_auc"] = result["roc_auc"]
+        metric_dict["test_loss"] = result["loss"]
+        metric_dict["test_acc"] = result["acc"]
+        metric_dict["test_roc_auc"] = result["roc_auc"]
 
         if log_preds:
             try:
@@ -499,6 +436,7 @@ def train_model(
             )  # Reduce LR based on validation accuracy
 
         # Log metrics
+        print(metric_dict)
         wandb.log(metric_dict)
 
     return model
@@ -526,7 +464,6 @@ if __name__ == "__main__":
 
     model_type = args.model_type
     patch_size = args.patch_size
-    feature_extract = args.feature_extract
 
     auxiliary_loss = args.auxiliary_loss
     probe_layer = args.probe_layer
@@ -541,10 +478,6 @@ if __name__ == "__main__":
     batch_size = args.batch_size
 
     seed = args.seed
-
-    n_train = args.n_train
-    n_val = args.n_val
-    n_test = args.n_test
 
     # make deterministic if given a seed
     if seed != -1:
@@ -574,16 +507,6 @@ if __name__ == "__main__":
     else:
         pretrained_string = ""
 
-    if feature_extract:
-        fe_string = "_fe"
-
-        try:
-            os.mkdir("features")
-        except FileExistsError:
-            pass
-    else:
-        fe_string = ""
-
     model, transform, model_string = utils.load_model_for_training(
         model_type,
         patch_size,
@@ -591,27 +514,25 @@ if __name__ == "__main__":
         pretrained,
         int_to_label,
         label_to_int,
-        feature_extract,
     )
     model = model.to(device)  # Move model to GPU if possible
 
-    if feature_extract:
-        backbone = model.vision_model
-        model = model.visual_projection
-    else:
-        backbone = None
-
     probes = None
     if auxiliary_loss:
+        # If using auxiliary loss, get probes and train them
+        # alongside the model
+        probe_value = "auxiliary_loss"
         probes = utils.get_model_probes(
             model,
-            num_shapes=16,  # Hardcode in number of shapes and textures for now
+            num_shapes=16,
             num_textures=16,
+            num_classes=2,
+            probe_for=probe_value,
+            split_embed=True,
         )
 
     # Create paths
     model_string += pretrained_string  # Indicate if model is pretrained
-    model_string += fe_string  # Add 'fe' if applicable
     model_string += "_{0}".format(optim)  # Optimizer string
 
     path = os.path.join(model_string, dataset_str)
@@ -624,7 +545,10 @@ if __name__ == "__main__":
     if not os.path.exists(data_dir):
         raise ValueError("Train Data Directory does not exist")
 
-    train_dataset = SameDifferentDataset(data_dir + "/train", transform=transform)
+    train_dataset = SameDifferentDataset(
+        data_dir + "/train",
+        transform=transform,
+    )
     train_dataloader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -633,11 +557,17 @@ if __name__ == "__main__":
         drop_last=True,
     )
 
-    val_dataset = SameDifferentDataset(data_dir + "/val", transform=transform)
-    val_dataloader = DataLoader(val_dataset, batch_size=1024, shuffle=True)
+    val_dataset = SameDifferentDataset(
+        data_dir + "/val",
+        transform=transform,
+    )
+    val_dataloader = DataLoader(val_dataset, batch_size=512, shuffle=True)
 
-    test_dataset = SameDifferentDataset(data_dir + "/test", transform=transform)
-    test_dataloader = DataLoader(test_dataset, batch_size=1024, shuffle=True)
+    test_dataset = SameDifferentDataset(
+        data_dir + "/test",
+        transform=transform,
+    )
+    test_dataloader = DataLoader(test_dataset, batch_size=512, shuffle=True)
 
     if args.auxiliary_loss:
         params = (
@@ -669,11 +599,9 @@ if __name__ == "__main__":
     exp_config = {
         "model_type": model_type,
         "patch_size": patch_size,
-        "feature_extract": feature_extract,
         "pretrained": pretrained,
         "train_device": device,
         "dataset": dataset_str,
-        "train_size": n_train,
         "learning_rate": lr,
         "scheduler": lr_scheduler,
         "decay_rate": decay_rate,
@@ -734,7 +662,6 @@ if __name__ == "__main__":
         test_dataset,
         test_dataloader,
         test_table,
-        backbone=backbone,
         probes=probes,
         probe_layer=args.probe_layer,
     )

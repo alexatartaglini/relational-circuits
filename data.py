@@ -73,8 +73,94 @@ def load_dataset(root_dir, subset=None):
             ims[idx] = im_dict
             idx += 1
             pixels.close()
-
     return ims
+
+
+class ProbeDataset(Dataset):
+    def __init__(
+        self,
+        root_dir,
+        embeddings,
+        probe_stream,
+        probe_layer,
+        probe_value,
+        num_shapes=16,
+        num_textures=16,
+        subset=None,
+    ):
+        self.im_dict = load_dataset(root_dir, subset=subset)
+        self.embeddings = embeddings
+        self.probe_stream = probe_stream
+        self.probe_layer = probe_layer
+        self.probe_value = probe_value
+
+        # Dictionary mapping unordered pairs of shape/texture to labels
+        self.shapeCombo2Label = {
+            k: v
+            for v, k in enumerate(
+                list(itertools.combinations_with_replacement(range(num_shapes), 2))
+            )
+        }
+        self.textureCombo2Label = {
+            k: v
+            for v, k in enumerate(
+                list(itertools.combinations_with_replacement(range(num_textures), 2))
+            )
+        }
+
+    def __len__(self):
+        return len(self.embeddings.keys())
+
+    def __getitem__(self, idx):
+
+        shape_1 = int(self.im_dict[idx]["shape_1"])
+        shape_2 = int(self.im_dict[idx]["shape_2"])
+        texture_1 = self.im_dict[idx]["texture_1"]
+        texture_2 = self.im_dict[idx]["texture_2"]
+
+        # For probing experiments, provide indices of either object stream or cls stream
+        if self.probe_stream == "cls":
+            stream = 0
+        elif self.probe_stream != None:
+            stream = self.im_dict[idx][self.probe_stream]
+
+        embedding = self.embeddings[idx][self.probe_layer][0][stream]
+
+        # For probing, associate correct labels for the stream we're probing
+        if self.probe_value == "shape":
+            if self.probe_stream == "stream_1":
+                label = shape_1
+            elif self.probe_stream == "stream_2":
+                label = shape_2
+            elif self.probe_stream == "cls":
+                raise ValueError("Cannot probe for just one shape in CLS token")
+
+        if self.probe_value == "texture":
+            if self.probe_stream == "stream_1":
+                label = texture_1
+            elif self.probe_stream == "stream_2":
+                label = texture_2
+            elif self.probe_stream == "cls":
+                raise ValueError("Cannot probe for just one texture in CLS token")
+
+        if self.probe_value == "class":
+            label = self.im_dict[idx]["label"]
+
+        # Get the index of the particular combination of shapes (order doesn't matter because streams are arbitrary!)
+        if self.probe_value == "both_shapes":
+            try:
+                label = self.shapeCombo2Label[(shape_1, shape_2)]
+            except:
+                label = self.shapeCombo2Label[(shape_2, shape_1)]
+
+        if self.probe_value == "both_textures":
+            try:
+                label = self.textureCombo2Label[(texture_1, texture_2)]
+            except:
+                label = self.textureCombo2Label[(texture_2, texture_1)]
+
+        item = {"embeddings": embedding, "labels": label}
+        return item
 
 
 class SameDifferentDataset(Dataset):

@@ -24,19 +24,13 @@ def model_train_parser(parser):
     parser.add_argument(
         "--patch_size", type=int, default=32, help="Size of patch (eg. 16 or 32)."
     )
-
-    parser.add_argument(
-        "--feature_extract",
-        action="store_true",
-        default=False,
-        help="Only train the final layer; freeze all other layers.",
-    )
     parser.add_argument(
         "--auxiliary_loss",
         action="store_true",
         default=False,
         help="Train with auxiliary loss to induce subspaces.",
     )
+
     parser.add_argument(
         "--probe_layer", default=-1, type=int, help="Probe layer for auxiliary loss"
     )
@@ -75,23 +69,6 @@ def model_train_parser(parser):
         "--seed", type=int, default=-1, help="If not given, picks random seed."
     )
 
-    # Dataset size arguments
-    parser.add_argument(
-        "--n_train", type=int, default=6400, help="Size of training dataset to use."
-    )
-    parser.add_argument(
-        "--n_val",
-        type=int,
-        default=-1,
-        help="Total # validation stimuli. Default: equal to n_train.",
-    )
-    parser.add_argument(
-        "--n_test",
-        type=int,
-        default=-1,
-        help="Total # test stimuli. Default: equal to n_train.",
-    )
-
     # Paremeters for logging, storing models, etc.
     parser.add_argument(
         "--save_model_freq",
@@ -103,7 +80,6 @@ def model_train_parser(parser):
     parser.add_argument(
         "--checkpoint",
         help="Whether or not to store model checkpoints.",
-        action="store_true",
         default=True,
     )
     parser.add_argument(
@@ -127,6 +103,53 @@ def model_train_parser(parser):
     )
 
     return parser.parse_args()
+
+
+def model_probe_parser(parser):
+    parser.add_argument(
+        "-m",
+        "--model_type",
+        help="Model to train: vit, clip_vit.",
+        type=str,
+        required=True,
+    )
+    parser.add_argument(
+        "--patch_size", type=int, default=32, help="Size of patch (eg. 16 or 32)."
+    )
+    parser.add_argument(
+        "--model_path",
+        default=None,
+        help="Path to state dict to probe.",
+    )
+
+    parser.add_argument(
+        "-ds",
+        "--dataset_str",
+        required=False,
+        help="Names of the directory containing stimuli",
+        default="NOISE_RGB/aligned/N_32/trainsize_6400_32-32-224",
+    )
+    parser.add_argument(
+        "--optim",
+        type=str,
+        default="adamw",
+        help="Training optimizer, eg. adam, adamw, sgd.",
+    )
+    parser.add_argument("--lr", type=float, default=1e-2, help="Learning rate.")
+    parser.add_argument(
+        "--lr_scheduler", default="reduce_on_plateau", help="LR scheduler."
+    )
+    parser.add_argument(
+        "--num_epochs", type=int, default=30, help="Number of training epochs."
+    )
+    parser.add_argument(
+        "--batch_size", type=int, default=64, help="Train/validation batch size."
+    )
+    parser.add_argument(
+        "--seed", type=int, default=0, help="If not given, picks random seed."
+    )
+    args = parser.parse_args()
+    return args
 
 
 def data_generation_parser(parser):
@@ -194,3 +217,4 @@ def data_generation_parser(parser):
     )
 
     args = parser.parse_args()
+    return args
