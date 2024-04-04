@@ -252,6 +252,7 @@ def train_model(
     test_dataloader,
     probes=None,
     probe_layer=None,
+    early_stopping=False,
 ):
     """Main function implementing the training/eval loop
 
@@ -277,7 +278,7 @@ def train_model(
         save_model_epochs = np.linspace(0, num_epochs, save_model_freq, dtype=int)
 
     criterion = nn.CrossEntropyLoss()
-    early_stopping = EarlyStopper()
+    early_stopper = EarlyStopper()
 
     for epoch in range(num_epochs):
         print("Epoch {}/{}".format(epoch + 1, num_epochs))
@@ -360,7 +361,7 @@ def train_model(
         print(metric_dict)
         wandb.log(metric_dict)
         
-        if early_stopping(metric_dict["val_loss"]):
+        if early_stopping and early_stopper(metric_dict["val_loss"]):
             torch.save(
                 model.state_dict(), f"{log_dir}/model_{epoch}_{lr}_{wandb.run.id}.pth"
             )
