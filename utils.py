@@ -124,7 +124,7 @@ def load_model_for_training(
 def get_model_probes(
     model,
     num_shapes,
-    num_textures,
+    num_colors,
     num_classes,
     probe_for,
     split_embed=False,
@@ -138,12 +138,12 @@ def get_model_probes(
     if probe_for == "auxiliary_loss":
         return (
             nn.Linear(probe_dim, num_shapes).to(device),
-            nn.Linear(probe_dim, num_textures).to(device),
+            nn.Linear(probe_dim, num_colors).to(device),
         )
     if probe_for == "shape":
         return nn.Linear(probe_dim, num_shapes).to(device)
-    if probe_for == "texture":
-        return nn.Linear(probe_dim, num_textures).to(device)
+    if probe_for == "color":
+        return nn.Linear(probe_dim, num_colors).to(device)
     if probe_for == "class":
         return nn.Linear(probe_dim, num_classes).to(device)
     if probe_for == "both_shapes":
@@ -151,8 +151,8 @@ def get_model_probes(
             list(itertools.combinations_with_replacement(range(num_shapes), 2))
         )
         return nn.Linear(probe_dim, possible_combinations).to(device)
-    if probe_for == "both_textures":
+    if probe_for == "both_colors":
         possible_combinations = len(
-            list(itertools.combinations_with_replacement(range(num_textures), 2))
+            list(itertools.combinations_with_replacement(range(num_colors), 2))
         )
         return nn.Linear(probe_dim, possible_combinations).to(device)

@@ -252,5 +252,17 @@ def data_generation_parser(parser):
         default=-1,
         help="Create compositional NOISE_RGB dataset with specified # of combinations in train set.",
     )
+    parser.add_argument(
+        "--texture",
+        action="store_true",
+        default=False,
+        help="Create dataset with textures.",
+    )
+    parser.add_argument(
+        "--disentangled_color",
+        action="store_true",
+        default=False,
+        help="Create dataset with color as an additional third axis of variation (disentangled from texture).",
+    )
 
     return parser.parse_args()

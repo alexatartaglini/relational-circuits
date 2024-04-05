@@ -40,7 +40,7 @@ def compute_auxiliary_loss(
     hidden_dim = input_embeds.shape[-1]
     probe_dim = int(hidden_dim / 2)
 
-    shape_probe, texture_probe = probes
+    shape_probe, color_probe = probes
 
     states_1 = input_embeds[range(len(data["stream_1"])), data["stream_1"]]
     states_2 = input_embeds[range(len(data["stream_2"])), data["stream_2"]]
@@ -48,26 +48,26 @@ def compute_auxiliary_loss(
     shapes_1 = data["shape_1"]
     shapes_2 = data["shape_2"]
 
-    textures_1 = data["texture_1"]
-    textures_2 = data["texture_2"]
+    colors_1 = data["color_1"]
+    colors_2 = data["color_2"]
 
     states = torch.cat((states_1, states_2))
     shapes = torch.cat((shapes_1, shapes_2)).to(device)
-    textures = torch.cat((textures_1, textures_2)).to(device)
+    colors = torch.cat((colors_1, colors_2)).to(device)
 
-    # Run shape probe on half of the embedding, texture probe on other half, ensures nonoverlapping subspaces
+    # Run shape probe on half of the embedding, color probe on other half, ensures nonoverlapping subspaces
     shape_outs = shape_probe(states[:, :probe_dim])
-    texture_outs = texture_probe(states[:, probe_dim:])
+    color_outs = color_probe(states[:, probe_dim:])
 
-    aux_loss = (criterion(shape_outs, shapes) + criterion(texture_outs, textures),)
+    aux_loss = (criterion(shape_outs, shapes) + criterion(color_outs, colors),)
 
     shape_acc = accuracy_score(shapes.to("cpu"), shape_outs.to("cpu").argmax(1))
-    texture_acc = accuracy_score(textures.to("cpu"), texture_outs.to("cpu").argmax(1))
+    color_acc = accuracy_score(colors.to("cpu"), color_outs.to("cpu").argmax(1))
 
     return (
         aux_loss,
         shape_acc,
-        texture_acc,
+        color_acc,
     )
 
 
@@ -97,7 +97,7 @@ def train_model_epoch(
     running_loss = 0.0
     running_acc = 0.0
     running_shape_acc = 0.0
-    running_texture_acc = 0.0
+    running_color_acc = 0.0
 
     # Iterate over data.
     for bi, (d, f) in enumerate(data_loader):
@@ -122,14 +122,14 @@ def train_model_epoch(
             acc = accuracy_score(labels.to("cpu"), output_logits.to("cpu").argmax(1))
 
             if args.auxiliary_loss:
-                aux_loss, shape_acc, texture_acc = compute_auxiliary_loss(
+                aux_loss, shape_acc, color_acc = compute_auxiliary_loss(
                     outputs.hidden_states, d, probes, probe_layer, criterion
                 )
 
                 loss += aux_loss[0]
 
                 running_shape_acc += shape_acc * inputs.size(0)
-                running_texture_acc += texture_acc * inputs.size(0)
+                running_color_acc += color_acc * inputs.size(0)
 
             loss.backward()
             optimizer.step()
@@ -145,15 +145,15 @@ def train_model_epoch(
 
     if args.auxiliary_loss:
         epoch_shape_acc = running_shape_acc / dataset_size
-        epoch_texture_acc = running_texture_acc / dataset_size
+        epoch_color_acc = running_color_acc / dataset_size
         print("Epoch Shape accuracy: {:.4f}".format(epoch_shape_acc))
-        print("Epoch Texture accuracy: {:.4f}".format(epoch_texture_acc))
+        print("Epoch Color accuracy: {:.4f}".format(epoch_color_acc))
         return {
             "loss": epoch_loss,
             "acc": epoch_acc,
             "lr": optimizer.param_groups[0]["lr"],
             "shape_acc": epoch_shape_acc,
-            "texture_acc": epoch_texture_acc,
+            "color_acc": epoch_color_acc,
         }
 
     return {"loss": epoch_loss, "acc": epoch_acc, "lr": optimizer.param_groups[0]["lr"]}
@@ -186,7 +186,7 @@ def evaluation(
         running_acc_val = 0.0
         running_roc_auc = 0.0
         running_shape_acc_val = 0.0
-        running_texture_acc_val = 0.0
+        running_color_acc_val = 0.0
 
         for bi, (d, f) in enumerate(val_dataloader):
             inputs = d["pixel_values"].squeeze(1).to(device)
@@ -208,12 +208,12 @@ def evaluation(
             roc_auc = roc_auc_score(labels.to("cpu"), output_logits.to("cpu")[:, -1])
 
             if args.auxiliary_loss:
-                aux_loss, shape_acc, texture_acc = compute_auxiliary_loss(
+                aux_loss, shape_acc, color_acc = compute_auxiliary_loss(
                     outputs.hidden_states, d, probes, probe_layer, criterion
                 )
                 loss += aux_loss[0]
                 running_shape_acc_val += shape_acc * inputs.size(0)
-                running_texture_acc_val += texture_acc * inputs.size(0)
+                running_color_acc_val += color_acc * inputs.size(0)
 
             running_acc_val += acc * inputs.size(0)
             running_loss_val += loss.detach().item() * inputs.size(0)
@@ -306,7 +306,7 @@ def train_model(
 
         if args.auxiliary_loss:
             metric_dict["shape_acc"] = epoch_results["shape_acc"]
-            metric_dict["texture_acc"] = epoch_results["texture_acc"]
+            metric_dict["color_acc"] = epoch_results["color_acc"]
 
         # Save the model
         if epoch in save_model_epochs and args.checkpoint:
@@ -455,7 +455,7 @@ if __name__ == "__main__":
         probes = utils.get_model_probes(
             model,
             num_shapes=16,
-            num_textures=16,
+            num_colors=16,
             num_classes=2,
             probe_for=probe_value,
             split_embed=True,
