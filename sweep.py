@@ -45,11 +45,24 @@ parser.add_argument(
     default=False,
     help="Use ImageNet pretrained models. If false, models are trained from scratch.",
 )
+parser.add_argument(
+    "--ood",
+    action="store_true",
+    help="Whether or not to run OOD evaluations.",
+    default=False,
+)
+parser.add_argument(
+    "-ds",
+    "--dataset_str",
+    required=False,
+    help="Name of the directory containing stimuli",
+    default="NOISE_RGB",
+)
 parser.add_argument("--num_gpus", type=int, default=1, required=False)
 
 args = parser.parse_args()
 
-sweep_name = f"ViT-B/32 ({args.patch_size}x{args.patch_size} Stimuli)"
+sweep_name = f"ViT-B/32 ({args.patch_size}x{args.patch_size} {args.dataset_str} Stimuli)"
 commands = ["${env}", "${interpreter}", "${program}"]
 
 if args.pretrained:
@@ -60,6 +73,9 @@ if args.pretrained:
         sweep_name = f"ImageNet {sweep_name}"
 else:
     sweep_name = f"From Scratch {sweep_name}"
+
+if args.ood:
+    commands += ["--ood"]
 
 if args.auxiliary_loss:
     commands += ["--auxiliary_loss"]
@@ -79,7 +95,7 @@ sweep_configuration = {
     "parameters": {
         "dataset_str": {
             "values": [
-                "NOISE_RGB",
+                args.dataset_str,
             ]
         },
         "lr": {"values": [1e-3]},  # [1e-6]},
@@ -95,7 +111,7 @@ sweep_configuration = {
         "model_type": {"values": [args.model_type]},
         "batch_size": {"values": [128]},
         "probe_layer": {"values": [args.probe_layer]},
-        "compositional": {"values": [224, 128, 64, 32]}
+        "compositional": {"values": [-1, 32]}
     },
 }
 
