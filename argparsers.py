@@ -114,6 +114,7 @@ def model_train_parser(parser):
     )
     parser.add_argument(
         "--ood",
+        action="store_true",
         help="Whether or not to run OOD evaluations.",
         default=False,
     )
