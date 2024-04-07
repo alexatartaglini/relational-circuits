@@ -446,9 +446,15 @@ if __name__ == "__main__":
     label_to_int = {"different": 0, "same": 1}
     
     if dataset_str == "NOISE_st" or dataset_str == "NOISE_stc":
-        texture = True
+        args.texture = True
+    else:
+        args.texture = False
+        args.disentangled_color = False
     if dataset_str == "NOISE_stc":
-        disentangled_color = True
+        args.disentangled_color = True
+        
+    texture = args.texture
+    disentangled_color = args.disentangled_color
 
     # Check arguments
     assert model_type == "vit" or model_type == "clip_vit"
