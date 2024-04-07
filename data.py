@@ -63,7 +63,11 @@ color_combos = [
 color_to_int = {
     f"mean{color_combos[i][0]}_var10": i for i in range(len(color_combos))
 }
-
+ood_colors = ["103-110-0", "255-155-238", "145-0-0", "194-188-255"]
+for c in range(len(ood_colors)):  # ood colors
+    col = ood_colors[c]
+    color_to_int[f"mean{col}_var10"] = c + len(color_combos)
+    
 
 def load_dataset(root_dir, subset=None, disentangled_color=False):
     """Helper function to load image datasets"""
