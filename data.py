@@ -67,6 +67,14 @@ color_to_int = {
 
 def load_dataset(root_dir, subset=None, disentangled_color=False):
     """Helper function to load image datasets"""
+    
+    if not os.path.isdir(root_dir):
+        try:
+            with zipfile.ZipFile(f"{root_dir}.zip", "r") as zip_ref:
+                zip_ref.extractall(root_dir)
+        except FileNotFoundError:
+            raise FileNotFoundError("Data directory does not exist.")
+    
     ims = {}
     idx = 0
 
@@ -209,13 +217,6 @@ class SameDifferentDataset(Dataset):
         self.im_dict = load_dataset(root_dir, subset=subset)
         self.transform = transform
         self.disentangled_color = disentangled_color
-        
-        if not os.path.isdir(root_dir):
-            try:
-                with zipfile.ZipFile(f"{root_dir}.zip", "r") as zip_ref:
-                    zip_ref.extractall(root_dir)
-            except FileNotFoundError:
-                raise FileNotFoundError("Data directory does not exist.")
 
     def __len__(self):
         return len(list(self.im_dict.keys()))
