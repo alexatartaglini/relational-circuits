@@ -118,6 +118,18 @@ def model_train_parser(parser):
         help="Whether or not to run OOD evaluations.",
         default=False,
     )
+    parser.add_argument(
+        "--texture",
+        action="store_true",
+        default=False,
+        help="Create dataset with textures.",
+    )
+    parser.add_argument(
+        "--disentangled_color",
+        action="store_true",
+        default=False,
+        help="Create dataset with color as an additional third axis of variation (disentangled from texture).",
+    )
 
     # Paremeters for logging, storing models, etc.
     parser.add_argument(
