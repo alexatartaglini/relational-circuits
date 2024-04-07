@@ -61,7 +61,7 @@ color_combos = [
     ["120-144-156", "38-50-56"],
 ]
 color_to_int = {
-    color_combos[i][0]: i for i in range(len(color_combos))
+    f"mean{color_combos[i][0]}_var10": i for i in range(len(color_combos))
 }
 
 
