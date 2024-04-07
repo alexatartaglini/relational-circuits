@@ -8,6 +8,7 @@ import pickle as pkl
 from torch.utils.data import Dataset
 import itertools
 from argparsers import data_generation_parser
+import zipfile
 
 int_to_label = {1: "same", 0: "different"}
 label_to_int = {
@@ -208,6 +209,13 @@ class SameDifferentDataset(Dataset):
         self.im_dict = load_dataset(root_dir, subset=subset)
         self.transform = transform
         self.disentangled_color = disentangled_color
+        
+        if not os.path.isdir(root_dir):
+            try:
+                with zipfile.ZipFile(f"{root_dir}.zip", "r") as zip_ref:
+                    zip_ref.extractall(root_dir)
+            except FileNotFoundError:
+                raise FileNotFoundError("Data directory does not exist.")
 
     def __len__(self):
         return len(list(self.im_dict.keys()))
