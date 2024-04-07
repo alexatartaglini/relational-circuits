@@ -250,6 +250,9 @@ def train_model(
     val_dataloader,
     test_dataset,
     test_dataloader,
+    ood_labels=[],
+    ood_datasets=[],
+    ood_dataloaders=[],
     probes=None,
     probe_layer=None,
     early_stopping=False,
@@ -335,7 +338,7 @@ def train_model(
         metric_dict["val_acc"] = result["acc"]
         metric_dict["val_roc_auc"] = result["roc_auc"]
 
-        print("\nOOD: \n")
+        print("\nUnseen combinations: \n")
         result = evaluation(
             args,
             model,
@@ -351,6 +354,25 @@ def train_model(
         metric_dict["test_loss"] = result["loss"]
         metric_dict["test_acc"] = result["acc"]
         metric_dict["test_roc_auc"] = result["roc_auc"]
+        
+        for ood_label, ood_dataset, ood_dataloader in zip(
+                ood_labels, ood_datasets, ood_dataloaders):
+            print(f"\nOOD: {ood_label} \n")
+            result = evaluation(
+                args,
+                model,
+                ood_dataloader,
+                ood_dataset,
+                criterion,
+                epoch,
+                device=device,
+                probes=probes,
+                probe_layer=probe_layer,
+            )
+
+            metric_dict[f"{ood_label}_loss"] = result["loss"]
+            metric_dict[f"{ood_label}_acc"] = result["acc"]
+            metric_dict[f"{ood_label}_roc_auc"] = result["roc_auc"]
 
         if scheduler:
             scheduler.step(
@@ -409,6 +431,7 @@ if __name__ == "__main__":
 
     n_train = args.n_train
     compositional = args.compositional
+    ood = args.ood
 
     # make deterministic if given a seed
     if seed != -1:
@@ -421,6 +444,11 @@ if __name__ == "__main__":
     decay_rate = 0.95  # scheduler decay rate for Exponential type
     int_to_label = {0: "different", 1: "same"}
     label_to_int = {"different": 0, "same": 1}
+    
+    if dataset_str == "NOISE_st" or dataset_str == "NOISE_stc":
+        texture = True
+    if dataset_str == "NOISE_stc":
+        disentangled_color = True
 
     # Check arguments
     assert model_type == "vit" or model_type == "clip_vit"
@@ -488,6 +516,7 @@ if __name__ == "__main__":
     train_dataset = SameDifferentDataset(
         data_dir + "/train",
         transform=transform,
+        disentangled_color=disentangled_color,
     )
     train_dataloader = DataLoader(
         train_dataset,
@@ -500,14 +529,35 @@ if __name__ == "__main__":
     val_dataset = SameDifferentDataset(
         data_dir + "/val",
         transform=transform,
+        disentangled_color=disentangled_color,
     )
     val_dataloader = DataLoader(val_dataset, batch_size=512, shuffle=True)
 
     test_dataset = SameDifferentDataset(
         data_dir + "/test",
         transform=transform,
+        disentangled_color=disentangled_color,
     )
     test_dataloader = DataLoader(test_dataset, batch_size=512, shuffle=True)
+    
+    ood_labels = []
+    ood_datasets = []
+    ood_dataloaders = []
+    if ood:
+        ood_labels = ["ood-shape", "ood-color", "ood-shape-color"]
+        ood_dirs = ["64-64-64", "64-64-64", "16-16-16"]
+        
+        for ood_label, ood_dir in zip(ood_labels, ood_dirs):
+            ood_dir = f"stimuli/NOISE_ood/{ood_label}/aligned/N_{patch_size}/trainsize_6400_{ood_dir}"
+            ood_dataset = SameDifferentDataset(
+                ood_dir + "/val",
+                transform=transform,
+                disentangled_color=disentangled_color,
+            )
+            ood_dataloader = DataLoader(ood_dataset, batch_size=512, shuffle=True)
+            
+            ood_datasets.append(ood_dataset)
+            ood_dataloaders.append(ood_dataloader)
 
     if args.auxiliary_loss:
         params = (
@@ -585,6 +635,9 @@ if __name__ == "__main__":
         val_dataloader,
         test_dataset,
         test_dataloader,
+        ood_labels=ood_labels,
+        ood_datasets=ood_datasets,
+        ood_dataloaders=ood_dataloaders,
         probes=probes,
         probe_layer=args.probe_layer,
     )

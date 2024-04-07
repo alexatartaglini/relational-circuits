@@ -112,6 +112,11 @@ def model_train_parser(parser):
         default=6400,
         help="Total # test stimuli. Default: equal to n_train.",
     )
+    parser.add_argument(
+        "--ood",
+        help="Whether or not to run OOD evaluations.",
+        default=False,
+    )
 
     # Paremeters for logging, storing models, etc.
     parser.add_argument(
