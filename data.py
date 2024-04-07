@@ -72,7 +72,7 @@ def load_dataset(root_dir, subset=None, disentangled_color=False):
         try:
             with zipfile.ZipFile(f"{root_dir}.zip", "r") as zip_ref:
                 zip_dir = os.path.join(root_dir.split("/")[:-1])
-                zip_ref.extractall(zip_dir)
+                zip_ref.extractall(*zip_dir)
         except FileNotFoundError:
             raise FileNotFoundError("Data directory does not exist.")
     
