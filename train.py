@@ -376,7 +376,7 @@ def train_model(
 
         if scheduler:
             scheduler.step(
-                metric_dict["val_acc"]
+                metric_dict["test_acc"]
             )  # Reduce LR based on validation accuracy
 
         # Log metrics
@@ -442,6 +442,7 @@ if __name__ == "__main__":
     # Other hyperparameters/variables
     im_size = 224
     decay_rate = 0.95  # scheduler decay rate for Exponential type
+    patience = 10  # scheduler patience for ReduceLROnPlateau type
     int_to_label = {0: "different", 1: "same"}
     label_to_int = {"different": 0, "same": 1}
     
@@ -584,7 +585,7 @@ if __name__ == "__main__":
 
     if lr_scheduler == "reduce_on_plateau":
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=5, mode="max"
+            optimizer, patience=patience, mode="max"
         )
     elif lr_scheduler == "exponential":
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay_rate)
