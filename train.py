@@ -376,7 +376,7 @@ def train_model(
 
         if scheduler:
             scheduler.step(
-                metric_dict["test_acc"]
+                metric_dict["val_acc"]
             )  # Reduce LR based on validation accuracy
 
         # Log metrics
