@@ -442,7 +442,7 @@ if __name__ == "__main__":
     # Other hyperparameters/variables
     im_size = 224
     decay_rate = 0.95  # scheduler decay rate for Exponential type
-    patience = 10  # scheduler patience for ReduceLROnPlateau type
+    patience = 40  # scheduler patience for ReduceLROnPlateau type
     int_to_label = {0: "different", 1: "same"}
     label_to_int = {"different": 0, "same": 1}
     
