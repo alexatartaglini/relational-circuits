@@ -71,6 +71,19 @@ def model_train_parser(parser):
 
     # Dataset arguments
     parser.add_argument(
+        "--k", 
+        type=int, 
+        default=5, 
+        help="Number of objects per scene for counting task."
+    )
+    parser.add_argument(
+        "--n_images_per_task",
+        type=int,
+        default=100,
+        help="Number of images per counting task (per class).",
+    )
+    
+    parser.add_argument(
         "--compositional",
         type=int,
         default=-1,

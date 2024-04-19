@@ -380,7 +380,6 @@ def train_model(
             )  # Reduce LR based on validation accuracy
 
         # Log metrics
-        print(metric_dict)
         wandb.log(metric_dict)
         
         if early_stopping and early_stopper(metric_dict["val_loss"]):
