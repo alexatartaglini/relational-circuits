@@ -71,6 +71,19 @@ def model_train_parser(parser):
 
     # Dataset arguments
     parser.add_argument(
+        "--k", 
+        type=int, 
+        default=5, 
+        help="Number of objects per scene for counting task."
+    )
+    parser.add_argument(
+        "--n_images_per_task",
+        type=int,
+        default=100,
+        help="Number of images per counting task (per class).",
+    )
+    
+    parser.add_argument(
         "--compositional",
         type=int,
         default=-1,
@@ -111,6 +124,24 @@ def model_train_parser(parser):
         type=int,
         default=6400,
         help="Total # test stimuli. Default: equal to n_train.",
+    )
+    parser.add_argument(
+        "--ood",
+        action="store_true",
+        help="Whether or not to run OOD evaluations.",
+        default=False,
+    )
+    parser.add_argument(
+        "--texture",
+        action="store_true",
+        default=False,
+        help="Create dataset with textures.",
+    )
+    parser.add_argument(
+        "--disentangled_color",
+        action="store_true",
+        default=False,
+        help="Create dataset with color as an additional third axis of variation (disentangled from texture).",
     )
 
     # Paremeters for logging, storing models, etc.
@@ -263,6 +294,16 @@ def data_generation_parser(parser):
         action="store_true",
         default=False,
         help="Create das analysis images",
+        "--texture",
+        action="store_true",
+        default=False,
+        help="Create dataset with textures.",
+    )
+    parser.add_argument(
+        "--disentangled_color",
+        action="store_true",
+        default=False,
+        help="Create dataset with color as an additional third axis of variation (disentangled from texture).",
     )
 
     return parser.parse_args()

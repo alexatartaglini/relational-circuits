@@ -305,7 +305,7 @@ if __name__ == "__main__":
     # Iterate over things to probe for, places to probe, and layers, training probes for all of them
     for probe_value in ["class"]:
         for stream in ["stream_1", "stream_2", "cls"]:
-            if stream == "cls" and probe_value in ["shape", "texture"]:
+            if stream == "cls" and probe_value in ["shape", "color"]:
                 continue
             for layer in range(13):
 
@@ -336,7 +336,7 @@ if __name__ == "__main__":
                 probe = utils.get_model_probes(
                     model,
                     num_shapes=16,
-                    num_textures=16,
+                    num_colors=16,
                     num_classes=2,
                     probe_for=probe_value,
                     split_embed=False,

@@ -19,7 +19,7 @@ import copy
 def extract_embeddings(backbone, device, dataset):
     idx2embeds = {}
     shapes = []
-    textures = []
+    colors = []
     for idx in range(len(dataset)):
         print(idx)
         data, _ = dataset[idx]
@@ -30,12 +30,12 @@ def extract_embeddings(backbone, device, dataset):
         idx2embeds[idx] = input_embeds
         shapes.append(data["shape_1"])
         shapes.append(data["shape_2"])
-        textures.append(data["texture_1"])
-        textures.append(data["texture_2"])
-    return idx2embeds, list(set(shapes)), list(set(textures))
+        colors.append(data["color_1"])
+        colors.append(data["color_2"])
+    return idx2embeds, list(set(shapes)), list(set(colors))
 
 
-def get_rsms(dataset, embeddings, shapes, textures, samples=4, patch_size=32):
+def get_rsms(dataset, embeddings, shapes, colors, samples=4, patch_size=32):
     embeds = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     raw_image_values = defaultdict(lambda: defaultdict(list))
     raw_patch_values = defaultdict(lambda: defaultdict(list))
@@ -47,10 +47,10 @@ def get_rsms(dataset, embeddings, shapes, textures, samples=4, patch_size=32):
         data, _ = dataset[idx]
 
         # Append raw image pixel values
-        raw_image_values[data["shape_1"]][data["texture_1"]].append(
+        raw_image_values[data["shape_1"]][data["color_1"]].append(
             data["pixel_values"].reshape(-1)
         )
-        raw_image_values[data["shape_2"]][data["texture_2"]].append(
+        raw_image_values[data["shape_2"]][data["color_2"]].append(
             data["pixel_values"].reshape(-1)
         )
 
@@ -64,18 +64,18 @@ def get_rsms(dataset, embeddings, shapes, textures, samples=4, patch_size=32):
         )
 
         for layer in range(13):
-            embeds[data["shape_1"]][data["texture_1"]][layer].append(
+            embeds[data["shape_1"]][data["color_1"]][layer].append(
                 embeddings[idx][layer][0][data["stream_1"]]
             )
         for layer in range(13):
-            embeds[data["shape_2"]][data["texture_2"]][layer].append(
+            embeds[data["shape_2"]][data["color_2"]][layer].append(
                 embeddings[idx][layer][0][data["stream_2"]]
             )
 
     # Downsample embeddings
     for shape in shapes:
-        for texture in textures:
-            num_embeds = len(embeds[shape][texture][0])
+        for color in colors:
+            num_embeds = len(embeds[shape][color][0])
             if num_embeds > samples:
                 sampled_indices = np.random.choice(
                     range(num_embeds), samples, replace=False
@@ -84,35 +84,35 @@ def get_rsms(dataset, embeddings, shapes, textures, samples=4, patch_size=32):
                 sampled_indices = range(num_embeds)
 
             sampled_raw_image_values = [
-                raw_image_values[shape][texture][idx] for idx in sampled_indices
+                raw_image_values[shape][color][idx] for idx in sampled_indices
             ]
-            raw_image_values[shape][texture] = sampled_raw_image_values
+            raw_image_values[shape][color] = sampled_raw_image_values
 
             sampled_raw_patch_values = [
-                raw_patch_values[shape][texture][idx] for idx in sampled_indices
+                raw_patch_values[shape][color][idx] for idx in sampled_indices
             ]
-            raw_patch_values[shape][texture] = sampled_raw_patch_values
+            raw_patch_values[shape][color] = sampled_raw_patch_values
 
             for layer in range(13):
                 sampled_embeds = [
-                    embeds[shape][texture][layer][idx] for idx in sampled_indices
+                    embeds[shape][color][layer][idx] for idx in sampled_indices
                 ]
-                embeds[shape][texture][layer] = sampled_embeds
+                embeds[shape][color][layer] = sampled_embeds
 
-    # Append shape/texture pairs in the order in which they will be seen, create symbolic vectors
+    # Append shape/color pairs in the order in which they will be seen, create symbolic vectors
     all_embeds = defaultdict(list)
     image_values = []
     patch_values = []
     for shape in shapes:
-        for texture in textures:
-            for _ in embeds[shape][texture][0]:
-                features.append([shape, texture])
+        for color in colors:
+            for _ in embeds[shape][color][0]:
+                features.append([shape, color])
 
-            image_values += raw_image_values[shape][texture]
-            patch_values += raw_patch_values[shape][texture]
+            image_values += raw_image_values[shape][color]
+            patch_values += raw_patch_values[shape][color]
 
             for layer in range(13):
-                all_embeds[layer] += embeds[shape][texture][layer]
+                all_embeds[layer] += embeds[shape][color][layer]
 
     # Compute symbolic RSMs
     feature_rsm = np.zeros((len(features), len(features)))
@@ -273,9 +273,9 @@ if __name__ == "__main__":
     )
 
     # Extract embeddings from all datasets
-    embeddings, shapes, textures = extract_embeddings(backbone, device, val_dataset)
+    embeddings, shapes, colors = extract_embeddings(backbone, device, val_dataset)
     model_rsm, feature_rsm, templatic_rsm, raw_image_rsm, patch_rsm = get_rsms(
-        val_dataset, embeddings, shapes, textures
+        val_dataset, embeddings, shapes, colors
     )
 
     # Compute RSA values

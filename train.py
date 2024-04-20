@@ -40,7 +40,7 @@ def compute_auxiliary_loss(
     hidden_dim = input_embeds.shape[-1]
     probe_dim = int(hidden_dim / 2)
 
-    shape_probe, texture_probe = probes
+    shape_probe, color_probe = probes
 
     states_1 = input_embeds[range(len(data["stream_1"])), data["stream_1"]]
     states_2 = input_embeds[range(len(data["stream_2"])), data["stream_2"]]
@@ -48,26 +48,26 @@ def compute_auxiliary_loss(
     shapes_1 = data["shape_1"]
     shapes_2 = data["shape_2"]
 
-    textures_1 = data["texture_1"]
-    textures_2 = data["texture_2"]
+    colors_1 = data["color_1"]
+    colors_2 = data["color_2"]
 
     states = torch.cat((states_1, states_2))
     shapes = torch.cat((shapes_1, shapes_2)).to(device)
-    textures = torch.cat((textures_1, textures_2)).to(device)
+    colors = torch.cat((colors_1, colors_2)).to(device)
 
-    # Run shape probe on half of the embedding, texture probe on other half, ensures nonoverlapping subspaces
+    # Run shape probe on half of the embedding, color probe on other half, ensures nonoverlapping subspaces
     shape_outs = shape_probe(states[:, :probe_dim])
-    texture_outs = texture_probe(states[:, probe_dim:])
+    color_outs = color_probe(states[:, probe_dim:])
 
-    aux_loss = (criterion(shape_outs, shapes) + criterion(texture_outs, textures),)
+    aux_loss = (criterion(shape_outs, shapes) + criterion(color_outs, colors),)
 
     shape_acc = accuracy_score(shapes.to("cpu"), shape_outs.to("cpu").argmax(1))
-    texture_acc = accuracy_score(textures.to("cpu"), texture_outs.to("cpu").argmax(1))
+    color_acc = accuracy_score(colors.to("cpu"), color_outs.to("cpu").argmax(1))
 
     return (
         aux_loss,
         shape_acc,
-        texture_acc,
+        color_acc,
     )
 
 
@@ -97,7 +97,7 @@ def train_model_epoch(
     running_loss = 0.0
     running_acc = 0.0
     running_shape_acc = 0.0
-    running_texture_acc = 0.0
+    running_color_acc = 0.0
 
     # Iterate over data.
     for bi, (d, f) in enumerate(data_loader):
@@ -122,14 +122,14 @@ def train_model_epoch(
             acc = accuracy_score(labels.to("cpu"), output_logits.to("cpu").argmax(1))
 
             if args.auxiliary_loss:
-                aux_loss, shape_acc, texture_acc = compute_auxiliary_loss(
+                aux_loss, shape_acc, color_acc = compute_auxiliary_loss(
                     outputs.hidden_states, d, probes, probe_layer, criterion
                 )
 
                 loss += aux_loss[0]
 
                 running_shape_acc += shape_acc * inputs.size(0)
-                running_texture_acc += texture_acc * inputs.size(0)
+                running_color_acc += color_acc * inputs.size(0)
 
             loss.backward()
             optimizer.step()
@@ -145,15 +145,15 @@ def train_model_epoch(
 
     if args.auxiliary_loss:
         epoch_shape_acc = running_shape_acc / dataset_size
-        epoch_texture_acc = running_texture_acc / dataset_size
+        epoch_color_acc = running_color_acc / dataset_size
         print("Epoch Shape accuracy: {:.4f}".format(epoch_shape_acc))
-        print("Epoch Texture accuracy: {:.4f}".format(epoch_texture_acc))
+        print("Epoch Color accuracy: {:.4f}".format(epoch_color_acc))
         return {
             "loss": epoch_loss,
             "acc": epoch_acc,
             "lr": optimizer.param_groups[0]["lr"],
             "shape_acc": epoch_shape_acc,
-            "texture_acc": epoch_texture_acc,
+            "color_acc": epoch_color_acc,
         }
 
     return {"loss": epoch_loss, "acc": epoch_acc, "lr": optimizer.param_groups[0]["lr"]}
@@ -186,7 +186,7 @@ def evaluation(
         running_acc_val = 0.0
         running_roc_auc = 0.0
         running_shape_acc_val = 0.0
-        running_texture_acc_val = 0.0
+        running_color_acc_val = 0.0
 
         for bi, (d, f) in enumerate(val_dataloader):
             inputs = d["pixel_values"].squeeze(1).to(device)
@@ -208,12 +208,12 @@ def evaluation(
             roc_auc = roc_auc_score(labels.to("cpu"), output_logits.to("cpu")[:, -1])
 
             if args.auxiliary_loss:
-                aux_loss, shape_acc, texture_acc = compute_auxiliary_loss(
+                aux_loss, shape_acc, color_acc = compute_auxiliary_loss(
                     outputs.hidden_states, d, probes, probe_layer, criterion
                 )
                 loss += aux_loss[0]
                 running_shape_acc_val += shape_acc * inputs.size(0)
-                running_texture_acc_val += texture_acc * inputs.size(0)
+                running_color_acc_val += color_acc * inputs.size(0)
 
             running_acc_val += acc * inputs.size(0)
             running_loss_val += loss.detach().item() * inputs.size(0)
@@ -250,8 +250,12 @@ def train_model(
     val_dataloader,
     test_dataset,
     test_dataloader,
+    ood_labels=[],
+    ood_datasets=[],
+    ood_dataloaders=[],
     probes=None,
     probe_layer=None,
+    early_stopping=False,
 ):
     """Main function implementing the training/eval loop
 
@@ -277,7 +281,7 @@ def train_model(
         save_model_epochs = np.linspace(0, num_epochs, save_model_freq, dtype=int)
 
     criterion = nn.CrossEntropyLoss()
-    early_stopping = EarlyStopper()
+    early_stopper = EarlyStopper()
 
     for epoch in range(num_epochs):
         print("Epoch {}/{}".format(epoch + 1, num_epochs))
@@ -305,7 +309,7 @@ def train_model(
 
         if args.auxiliary_loss:
             metric_dict["shape_acc"] = epoch_results["shape_acc"]
-            metric_dict["texture_acc"] = epoch_results["texture_acc"]
+            metric_dict["color_acc"] = epoch_results["color_acc"]
 
         # Save the model
         if epoch in save_model_epochs and args.checkpoint:
@@ -334,7 +338,7 @@ def train_model(
         metric_dict["val_acc"] = result["acc"]
         metric_dict["val_roc_auc"] = result["roc_auc"]
 
-        print("\nOOD: \n")
+        print("\nUnseen combinations: \n")
         result = evaluation(
             args,
             model,
@@ -350,6 +354,25 @@ def train_model(
         metric_dict["test_loss"] = result["loss"]
         metric_dict["test_acc"] = result["acc"]
         metric_dict["test_roc_auc"] = result["roc_auc"]
+        
+        for ood_label, ood_dataset, ood_dataloader in zip(
+                ood_labels, ood_datasets, ood_dataloaders):
+            print(f"\nOOD: {ood_label} \n")
+            result = evaluation(
+                args,
+                model,
+                ood_dataloader,
+                ood_dataset,
+                criterion,
+                epoch,
+                device=device,
+                probes=probes,
+                probe_layer=probe_layer,
+            )
+
+            metric_dict[f"{ood_label}_loss"] = result["loss"]
+            metric_dict[f"{ood_label}_acc"] = result["acc"]
+            metric_dict[f"{ood_label}_roc_auc"] = result["roc_auc"]
 
         if scheduler:
             scheduler.step(
@@ -357,10 +380,9 @@ def train_model(
             )  # Reduce LR based on validation accuracy
 
         # Log metrics
-        print(metric_dict)
         wandb.log(metric_dict)
         
-        if early_stopping(metric_dict["val_loss"]):
+        if early_stopping and early_stopper(metric_dict["val_loss"]):
             torch.save(
                 model.state_dict(), f"{log_dir}/model_{epoch}_{lr}_{wandb.run.id}.pth"
             )
@@ -408,6 +430,7 @@ if __name__ == "__main__":
 
     n_train = args.n_train
     compositional = args.compositional
+    ood = args.ood
 
     # make deterministic if given a seed
     if seed != -1:
@@ -418,8 +441,20 @@ if __name__ == "__main__":
     # Other hyperparameters/variables
     im_size = 224
     decay_rate = 0.95  # scheduler decay rate for Exponential type
+    patience = 40  # scheduler patience for ReduceLROnPlateau type
     int_to_label = {0: "different", 1: "same"}
     label_to_int = {"different": 0, "same": 1}
+    
+    if dataset_str == "NOISE_st" or dataset_str == "NOISE_stc":
+        args.texture = True
+    else:
+        args.texture = False
+        args.disentangled_color = False
+    if dataset_str == "NOISE_stc":
+        args.disentangled_color = True
+        
+    texture = args.texture
+    disentangled_color = args.disentangled_color
 
     # Check arguments
     assert model_type == "vit" or model_type == "clip_vit"
@@ -454,7 +489,7 @@ if __name__ == "__main__":
         probes = utils.get_model_probes(
             model,
             num_shapes=16,
-            num_textures=16,
+            num_colors=16,
             num_classes=2,
             probe_for=probe_value,
             split_embed=True,
@@ -487,6 +522,7 @@ if __name__ == "__main__":
     train_dataset = SameDifferentDataset(
         data_dir + "/train",
         transform=transform,
+        disentangled_color=disentangled_color,
     )
     train_dataloader = DataLoader(
         train_dataset,
@@ -499,14 +535,35 @@ if __name__ == "__main__":
     val_dataset = SameDifferentDataset(
         data_dir + "/val",
         transform=transform,
+        disentangled_color=disentangled_color,
     )
     val_dataloader = DataLoader(val_dataset, batch_size=512, shuffle=True)
 
     test_dataset = SameDifferentDataset(
         data_dir + "/test",
         transform=transform,
+        disentangled_color=disentangled_color,
     )
     test_dataloader = DataLoader(test_dataset, batch_size=512, shuffle=True)
+    
+    ood_labels = []
+    ood_datasets = []
+    ood_dataloaders = []
+    if ood:
+        ood_labels = ["ood-shape", "ood-color", "ood-shape-color"]
+        ood_dirs = ["64-64-64", "64-64-64", "16-16-16"]
+        
+        for ood_label, ood_dir in zip(ood_labels, ood_dirs):
+            ood_dir = f"stimuli/NOISE_ood/{ood_label}/aligned/N_{patch_size}/trainsize_6400_{ood_dir}"
+            ood_dataset = SameDifferentDataset(
+                ood_dir + "/val",
+                transform=transform,
+                disentangled_color=disentangled_color,
+            )
+            ood_dataloader = DataLoader(ood_dataset, batch_size=512, shuffle=True)
+            
+            ood_datasets.append(ood_dataset)
+            ood_dataloaders.append(ood_dataloader)
 
     if args.auxiliary_loss:
         params = (
@@ -527,7 +584,7 @@ if __name__ == "__main__":
 
     if lr_scheduler == "reduce_on_plateau":
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=5, mode="max"
+            optimizer, patience=patience, mode="max"
         )
     elif lr_scheduler == "exponential":
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay_rate)
@@ -584,6 +641,9 @@ if __name__ == "__main__":
         val_dataloader,
         test_dataset,
         test_dataloader,
+        ood_labels=ood_labels,
+        ood_datasets=ood_datasets,
+        ood_dataloaders=ood_dataloaders,
         probes=probes,
         probe_layer=args.probe_layer,
     )
