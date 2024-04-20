@@ -11,7 +11,10 @@ from transformers import (
     CLIPVisionModelWithProjection,
     CLIPConfig,
     AutoProcessor,
+    AutoImageProcessor,
 )
+#from TransformerLens.transformer_lens.loading_from_pretrained import convert_vit_weights
+#from TransformerLens.transformer_lens.HookedViT import HookedViT
 import torch.nn as nn
 import itertools
 
@@ -68,6 +71,29 @@ def load_model_from_path(model_path, model_type, patch_size, im_size):
     model.eval()
 
     return model, transform
+
+
+# def load_tl_model(
+#     path,
+#     model_type="vit",
+#     patch_size=32,
+#     im_size=224,
+# ):
+#     if model_type == "vit":
+#         image_processor = AutoImageProcessor.from_pretrained(
+#             f"google/vit-base-patch{patch_size}-{im_size}-in21k"
+#         )
+#         hf_model = ViTForImageClassification.from_pretrained(
+#             f"google/vit-base-patch{patch_size}-{im_size}-in21k"
+#         ).to("cuda")
+#         tl_model = HookedViT.from_pretrained(
+#             f"google/vit-base-patch{patch_size}-{im_size}-in21k"
+#         ).to("cuda")
+
+#         hf_model.load_state_dict(torch.load(path))
+#         state_dict = convert_vit_weights(hf_model, tl_model.cfg)
+#         tl_model.load_state_dict(state_dict, strict=False)
+#     return image_processor, tl_model
 
 
 def load_model_for_training(

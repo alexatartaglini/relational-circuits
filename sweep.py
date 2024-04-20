@@ -82,8 +82,8 @@ sweep_configuration = {
                 "NOISE_RGB",
             ]
         },
-        "lr": {"values": [1e-3]},  # [1e-6]},
-        "lr_scheduler": {"values": ["reduce_on_plateau", "exponential"]},
+        "lr": {"values": [1e-4]},  # [1e-6]},
+        "lr_scheduler": {"values": ["reduce_on_plateau"]},  # "exponential"]},
         "n_val": {"values": [6400]},
         "n_test": {"values": [6400]},
         "patch_size": {"values": [args.patch_size]},
@@ -95,7 +95,7 @@ sweep_configuration = {
         "model_type": {"values": [args.model_type]},
         "batch_size": {"values": [128]},
         "probe_layer": {"values": [args.probe_layer]},
-        "compositional": {"values": [224, 128, 64, 32]}
+        "compositional": {"values": [32]},
     },
 }
 

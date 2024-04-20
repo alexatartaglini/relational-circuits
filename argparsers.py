@@ -138,7 +138,7 @@ def model_train_parser(parser):
         help="Directory where WandB runs should be stored.",
         default=None,
     )
-    
+
     return parser.parse_args()
 
 
@@ -177,7 +177,7 @@ def model_probe_parser(parser):
         "--lr_scheduler", default="reduce_on_plateau", help="LR scheduler."
     )
     parser.add_argument(
-        "--num_epochs", type=int, default=30, help="Number of training epochs."
+        "--num_epochs", type=int, default=10, help="Number of training epochs."
     )
     parser.add_argument(
         "--batch_size", type=int, default=64, help="Train/validation batch size."
@@ -251,6 +251,18 @@ def data_generation_parser(parser):
         type=int,
         default=-1,
         help="Create compositional NOISE_RGB dataset with specified # of combinations in train set.",
+    )
+    parser.add_argument(
+        "--create_subspace",
+        action="store_true",
+        default=False,
+        help="Create subspace analysis images",
+    )
+    parser.add_argument(
+        "--create_das",
+        action="store_true",
+        default=False,
+        help="Create das analysis images",
     )
 
     return parser.parse_args()

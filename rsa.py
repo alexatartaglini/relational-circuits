@@ -57,10 +57,10 @@ def get_rsms(dataset, embeddings, shapes, textures, samples=4, patch_size=32):
         # Append raw patch pixel values
         patch_pixels = data["pixel_values"].reshape(49, patch_size * patch_size * 3)
         raw_patch_values[data["shape_1"]][data["texture_1"]].append(
-            patch_pixels[data["stream_1"]]
+            patch_pixels[data["stream_1"] - 1]  # -1 because of the CLS token
         )
         raw_patch_values[data["shape_2"]][data["texture_2"]].append(
-            patch_pixels[data["stream_2"]]
+            patch_pixels[data["stream_2"] - 1]  # -1 because of the CLS token
         )
 
         for layer in range(13):
@@ -268,7 +268,7 @@ if __name__ == "__main__":
         raise ValueError("Train Data Directory does not exist")
 
     val_dataset = SameDifferentDataset(
-        data_dir + "/test",
+        data_dir + "/val",
         transform=transform,
     )
 

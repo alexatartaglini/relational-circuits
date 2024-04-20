@@ -5,6 +5,8 @@ import random
 import argparse
 import glob
 import pickle as pkl
+from collections import defaultdict
+import shutil
 from torch.utils.data import Dataset
 import itertools
 import pickle
@@ -62,8 +64,10 @@ def load_dataset(root_dir, subset=None):
                 "image": pixels,
                 "image_path": im,
                 "label": l,
-                "stream_1": data_dictionary[dict_key]["pos1"],
-                "stream_2": data_dictionary[dict_key]["pos2"],
+                "stream_1": data_dictionary[dict_key]["pos1"]
+                + 1,  # +1 accounts for the CLS token
+                "stream_2": data_dictionary[dict_key]["pos2"]
+                + 1,  # +1 accounts for the CLS token
                 "shape_1": data_dictionary[dict_key]["s1"],
                 "shape_2": data_dictionary[dict_key]["s2"],
                 "texture_1": texture_to_int[data_dictionary[dict_key]["t1"]],
@@ -322,7 +326,7 @@ def generate_different_matches(objects, n):
             match = random.choice(possible_matches)
 
             # Edit @Alexa: If there are possible matches left that have not yet been selected,
-            # select one (to ensure that as many possible pairs are represented in the dataset 
+            # select one (to ensure that as many possible pairs are represented in the dataset
             # as possible).
             if len(set(possible_matches) - set([p[-1] for p in pairs_per_obj[o]])) > 0:
                 while (o, match) in pairs_per_obj[o]:
@@ -417,9 +421,9 @@ def generate_pairs(objects, n, possible_coords):
             if old_shape != match_shape:  # Different shapes objs
                 # Add same texture pair to all_different_shape_pairs, with same coords and and index as all_different pair
                 if tuple(same_texture_pair) in all_different_shape_pairs.keys():
-                    all_different_shape_pairs[tuple(same_texture_pair)]["coords"].append(
-                        all_different_pairs[pair]["coords"][0]
-                    )
+                    all_different_shape_pairs[tuple(same_texture_pair)][
+                        "coords"
+                    ].append(all_different_pairs[pair]["coords"][0])
                     all_different_shape_pairs[tuple(same_texture_pair)]["idx"].append(
                         all_different_pairs[pair]["idx"][0]
                     )
@@ -431,9 +435,9 @@ def generate_pairs(objects, n, possible_coords):
             if old_texture != match_texture:  # Different texture objs
                 # Add same shape pair to all_different_texture_pairs, with same coords and and index as all_different pair
                 if tuple(same_shape_pair) in all_different_texture_pairs.keys():
-                    all_different_texture_pairs[tuple(same_shape_pair)]["coords"].append(
-                        all_different_pairs[pair]["coords"][0]
-                    )
+                    all_different_texture_pairs[tuple(same_shape_pair)][
+                        "coords"
+                    ].append(all_different_pairs[pair]["coords"][0])
                     all_different_texture_pairs[tuple(same_shape_pair)]["idx"].append(
                         all_different_pairs[pair]["idx"][0]
                     )
@@ -540,7 +544,7 @@ def create_stimuli(
         setting = f"{patch_dir}/{condition}/{sd_class}"
 
         for key in item_dict.keys():
-            
+
             positions = item_dict[key]["coords"]
             idxs = item_dict[key]["idx"]
 
@@ -551,21 +555,21 @@ def create_stimuli(
                 if key[0] in object_ims_all.keys() and key[1] in object_ims_all.keys():
                     p = positions[i]
                     stim_idx = idxs[i]
-    
+
                     obj1 = key[0]
                     obj2 = key[1]
                     object_ims = [
                         object_ims_all[obj1].copy(),
                         object_ims_all[obj2].copy(),
                     ]
-    
+
                     # Sample noise
                     create_noise_image(obj1, object_ims[0], split_channels=True)
                     create_noise_image(obj2, object_ims[1], split_channels=True)
-    
+
                     obj1_props = obj1[:-4].split("-")  # List of shape, texture
                     obj2_props = obj2[:-4].split("-")  # List of shape, texture
-    
+
                     obj1_props = [
                         obj1_props[0],
                         f"{obj1_props[1]}-{obj1_props[2]}-{obj1_props[3]}",
@@ -574,7 +578,7 @@ def create_stimuli(
                         obj2_props[0],
                         f"{obj2_props[1]}-{obj2_props[2]}-{obj2_props[3]}",
                     ]
-    
+
                     datadict[f"{condition}/{sd_class}/{stim_idx}.png"] = {
                         "sd-label": label_to_int[sd_class],
                         "pos1": possible_coords.index((p[0][1], p[0][0])),
@@ -584,17 +588,17 @@ def create_stimuli(
                         "t2": obj2_props[1],
                         "s2": obj2_props[0],
                     }
-    
+
                     # Create blank image and paste objects
                     base = Image.new("RGB", (im_size, im_size), (255, 255, 255))
-    
+
                     for c in range(len(p)):
                         box = [
                             coord + random.randint(0, obj_size // buffer_factor)
                             for coord in p[c]
                         ]
                         base.paste(object_ims[c], box=box)
-    
+
                     base.save(f"{setting}/{stim_idx}.png", quality=100)
                 stim_idx += 1
 
@@ -617,7 +621,7 @@ def call_create_stimuli(
     :param compositional: Whether to create a compositional dataset (hold out certain combos), defaults to no
     """
     # Assert patch size and im size make sense
-    #assert im_size % patch_size == 0
+    # assert im_size % patch_size == 0
 
     os.makedirs(patch_dir, exist_ok=True)
 
@@ -647,12 +651,11 @@ def call_create_stimuli(
 
         textures = list(set([o[1] for o in all_objs]))
 
-        # @Alexa, a bit confused here. Mind leaving a comment?
         # Edit @Alexa: this is a set of sliding indices that I pass over the list of
         # possible shapes to match with each texture; this then ensures that all
         # unique shapes & textures are represented in the training/test data, but that
-        # only some combinations of them are seen during training. 
-        proportion_test = int(16*(256 - compositional) / 256)
+        # only some combinations of them are seen during training.
+        proportion_test = int(16 * (256 - compositional) / 256)
         sliding_idx = [
             [(j + i) % 16 for j in range(proportion_test)] for i in range(16)
         ]
@@ -791,6 +794,355 @@ def create_source(
             base.convert("RGB").save(f"{stim_dir}/{shape_name}-{texture_name}.png")
 
 
+def create_particular_stimulus(
+    shape_1,
+    shape_2,
+    texture_1,
+    texture_2,
+    position_1,
+    position_2,
+    buffer_factor=8,
+    im_size=224,
+    patch_size=32,
+    split_channels=True,
+):
+    # Shape_1 is an integer
+    # Texture_1 is a mean_var pair
+    # position_1 is an x, y pair
+    coords = np.linspace(
+        0, im_size, num=(im_size // patch_size), endpoint=False, dtype=int
+    )
+
+    x_1 = coords[position_1[0]]
+    y_1 = coords[position_1[1]]
+    x_2 = coords[position_2[0]]
+    y_2 = coords[position_2[1]]
+
+    path1 = f"{shape_1}-{texture_1}.png"
+    path2 = f"{shape_2}-{texture_2}.png"
+
+    im1 = Image.open(f"stimuli/source/NOISE_RGB/{patch_size}/{path1}").convert("RGB")
+    im1 = im1.resize(
+        (
+            patch_size - (patch_size // buffer_factor),
+            patch_size - (patch_size // buffer_factor),
+        ),
+        Image.NEAREST,
+    )
+
+    im2 = Image.open(f"stimuli/source/NOISE_RGB/{patch_size}/{path2}").convert("RGB")
+    im2 = im2.resize(
+        (
+            patch_size - (patch_size // buffer_factor),
+            patch_size - (patch_size // buffer_factor),
+        ),
+        Image.NEAREST,
+    )
+
+    # Sample noise
+    create_noise_image(path1, im1, split_channels=split_channels)
+    create_noise_image(path2, im2, split_channels=split_channels)
+
+    # Create blank image and paste objects
+    base = Image.new("RGB", (im_size, im_size), (255, 255, 255))
+
+    box1 = [
+        coord + random.randint(0, patch_size // buffer_factor) for coord in [x_1, y_1]
+    ]
+    base.paste(im1, box=box1)
+
+    box2 = [
+        coord + random.randint(0, patch_size // buffer_factor) for coord in [x_2, y_2]
+    ]
+    base.paste(im2, box=box2)
+
+    return base
+
+
+def create_subspace_datasets(
+    patch_size=32,
+    mode="val",
+    analysis="texture",
+    split_channels=True,
+    compositional=-1,
+    samples=200,
+):
+    num_patch = 224 // patch_size
+
+    if analysis == "shape":
+        other_feat_str = "texture"
+    else:
+        other_feat_str = "shape"
+
+    if compositional > 0:
+        train_str = (
+            f"trainsize_6400_{compositional}-{compositional}-{256 - compositional}"
+        )
+    else:
+        train_str = "trainsize_6400_256-256-256"
+
+    subspace_imgs_path = os.path.join(
+        "stimuli", "subspace", train_str, f"{analysis}_{patch_size}"
+    )
+    os.makedirs(
+        subspace_imgs_path,
+        exist_ok=True,
+    )
+
+    all_ims = glob.glob(f"stimuli/source/NOISE_RGB/{patch_size}/*.png")
+    all_ims = [im.split("/")[-1][:-4].split("-") for im in all_ims]
+    all_ims = [
+        [im[0], f"{im[1]}-{im[2]}-{im[3]}"] for im in all_ims
+    ]  # all_ims is a list of (shape, texture) tuples
+    shapes = set([im[0] for im in all_ims])
+    textures = set([im[1] for im in all_ims])
+    feature_dict = {"shape": sorted(list(shapes)), "texture": sorted(list(textures))}
+
+    stim_dir = f"stimuli/NOISE_RGB/aligned/N_{patch_size}/{train_str}"
+    base_imfiles = glob.glob(f"{stim_dir}/{mode}/different-{analysis}/*.png")
+    stim_dict = pickle.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
+
+    random.shuffle(base_imfiles)
+    base_imfiles = base_imfiles[:samples]
+
+    for base in base_imfiles:
+        print(base)
+        im = Image.open(base)
+        base_path = os.path.join(*base.split("/")[-3:])
+        base_idx = base.split("/")[-1][:-4]
+        datadict = {}
+
+        base_dir = os.path.join(subspace_imgs_path, mode, f"set_{base_idx}")
+        os.makedirs(base_dir, exist_ok=True)
+
+        same_stim = stim_dict[f"{mode}/same/{base_idx}.png"]
+        diff_stim = stim_dict[base_path]
+        datadict["base.png"] = diff_stim.copy()
+        datadict["same.png"] = same_stim.copy()
+
+        try:
+            datadict["base.png"].pop("sd-label")
+        except KeyError:
+            pass
+
+        try:
+            datadict["same.png"].pop("sd-label")
+        except KeyError:
+            pass
+
+        shutil.copy(base, f"{base_dir}/base.png")
+        shutil.copy(f"{stim_dir}/{mode}/same/{base_idx}.png", f"{base_dir}/same.png")
+
+        print(same_stim)
+        print(diff_stim)
+        if (
+            same_stim[f"{analysis[0]}1"] != diff_stim[f"{analysis[0]}1"]
+        ):  # Which object in the image is the edited one?
+            edited_idx = 1
+            not_edited_idx = 2
+        else:
+            edited_idx = 2
+            not_edited_idx = 1
+        print(edited_idx)
+        print(not_edited_idx)
+
+        # For each texture/shape present in the "different" stimulus, create versions with every shape/texture
+        feature0 = diff_stim[f"{analysis[0]}{edited_idx}"]
+        feature1 = same_stim[f"{analysis[0]}1"]
+
+        for feature, feature_str in zip(
+            [feature0, feature1], [f"{analysis}0", f"{analysis}1"]
+        ):
+            other_idx = 0
+
+            for other_feat in feature_dict[other_feat_str]:
+                other_2 = diff_stim[f"{other_feat_str[0]}{not_edited_idx}"]
+                feat_2 = diff_stim[f"{analysis[0]}{not_edited_idx}"]
+                position_2 = diff_stim[f"pos{not_edited_idx}"]
+
+                other_1 = other_feat
+                feat_1 = feature
+                position_1 = diff_stim[f"pos{edited_idx}"]
+
+                if analysis == "texture":
+                    dict_str = f"{feature_str}_shape{other_idx}.png"
+                else:
+                    dict_str = f"{feature_str}_texture{other_idx}.png"
+
+                datadict[dict_str] = {
+                    "pos1": position_1,
+                    f"{analysis[0]}1": feat_1,
+                    f"{other_feat_str[0]}1": other_1,
+                    "pos2": position_2,
+                    f"{analysis[0]}2": feat_2,
+                    f"{other_feat_str[0]}2": other_2,
+                }
+
+                position_1 = [position_1 % num_patch, position_1 // num_patch]
+                position_2 = [position_2 % num_patch, position_2 // num_patch]
+
+                if analysis == "texture":
+                    im = create_particular_stimulus(
+                        other_1, other_2, feat_1, feat_2, position_1, position_2
+                    )
+                else:
+                    im = create_particular_stimulus(
+                        feat_1, feat_2, other_1, other_2, position_1, position_2
+                    )
+
+                im.save(f"{base_dir}/{dict_str}")
+                other_idx += 1
+
+        with open(f"{base_dir}/datadict.pkl", "wb") as handle:
+            pickle.dump(datadict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+def create_das_datasets(
+    patch_size=32,
+    mode="val",
+    analysis="texture",
+    compositional=-1,
+    samples=2500,
+    variations=1,  # How many variations of the counterfactual to make
+):
+    num_patch = 224 // patch_size
+
+    if analysis == "shape":
+        other_feat_str = "texture"
+    else:
+        other_feat_str = "shape"
+
+    if compositional > 0:
+        train_str = (
+            f"trainsize_6400_{compositional}-{compositional}-{256 - compositional}"
+        )
+    else:
+        train_str = "trainsize_6400_256-256-256"
+
+    subspace_imgs_path = os.path.join(
+        "stimuli", "das", train_str, f"{analysis}_{patch_size}"
+    )
+    os.makedirs(
+        subspace_imgs_path,
+        exist_ok=True,
+    )
+
+    all_ims = glob.glob(f"stimuli/source/NOISE_RGB/{patch_size}/*.png")
+    all_ims = [im.split("/")[-1][:-4].split("-") for im in all_ims]
+    all_ims = [
+        [im[0], f"{im[1]}-{im[2]}-{im[3]}"] for im in all_ims
+    ]  # all_ims is a list of (shape, texture) tuples
+    shapes = set([im[0] for im in all_ims])
+    textures = set([im[1] for im in all_ims])
+    feature_dict = {"shape": sorted(list(shapes)), "texture": sorted(list(textures))}
+
+    stim_dir = f"stimuli/NOISE_RGB/aligned/N_{patch_size}/{train_str}"
+    base_imfiles = glob.glob(f"{stim_dir}/{mode}/different-{analysis}/*.png")
+    stim_dict = pickle.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
+
+    random.shuffle(base_imfiles)
+    base_imfiles = base_imfiles[:samples]
+
+    datadict = {}
+
+    for base in base_imfiles:
+        im = Image.open(base)
+        base_path = os.path.join(*base.split("/")[-3:])
+        base_idx = base.split("/")[-1][:-4]
+
+        for variation in range(variations):
+            base_dir = os.path.join(
+                subspace_imgs_path, mode, f"set_{base_idx}_{variation}"
+            )
+            os.makedirs(base_dir, exist_ok=True)
+
+            diff_stim = stim_dict[base_path]
+
+            shutil.copy(base, f"{base_dir}/base.png")
+
+            # arbitrarily change the first object to match the second
+            edited_idx = 1
+            non_edited_idx = 2
+            # Create a new stimuli with an object that is different in the other feature dimension, but same in
+            # the analyzed feature dimension (i.e if looking for shape subspace, fix shape property and sample texture)
+
+            # Terminology:
+            # counterfactual object = object from which to inject analyzed feature
+            # non-counterfactual object = other object in counterfactual image
+            # analyzed feature = feature to inject
+            # other feature = non-analyzed feature
+
+            # Force the counterfactual object to have a specific 'analyzed' feature
+            analyzed_feature = diff_stim[f"{analysis[0]}2"]
+
+            # Force the non-counterfactual object to have another, different 'analyzed' feature
+            sampled_analyzed_feature_non_cf = np.random.choice(
+                list(set(feature_dict[analysis]) - set([analyzed_feature]))
+            )
+
+            # Force the counterfactual object to have a different 'other' feature than it did in the original image
+            base_other_feature = diff_stim[f"{other_feat_str[0]}2"]
+            sampled_other_feature_cf = np.random.choice(
+                list(set(feature_dict[other_feat_str]) - set([base_other_feature]))
+            )
+
+            # Force the non-counterfactual object to have yet another 'other' feature
+            sampled_other_feature_non_cf = np.random.choice(
+                list(
+                    set(feature_dict[other_feat_str])
+                    - set([base_other_feature, sampled_other_feature_cf])
+                )
+            )
+
+            # Sample a new position for the counterfactual and non-counterfactual shape
+            choices = list(range(49))
+            positions = np.random.choice(choices, 2, replace=False)
+            cf_position = positions[0]
+            non_cf_position = positions[1]
+
+            # Get position of the base token to inject information into
+            edited_pos = diff_stim[f"pos{edited_idx}"]
+            non_edited_pos = diff_stim[f"pos{non_edited_idx}"]
+
+            dict_str = "counterfactual.png"
+            datadict[f"set_{base_idx}_{variation}"] = {
+                "edited_pos": edited_pos,
+                "non_edited_pos": non_edited_pos,
+                "cf_pos": cf_position,
+            }
+
+            cf_position = [cf_position % num_patch, cf_position // num_patch]
+            non_cf_position = [
+                non_cf_position % num_patch,
+                non_cf_position // num_patch,
+            ]
+
+            if analysis == "texture":
+                im = create_particular_stimulus(
+                    sampled_other_feature_cf,
+                    sampled_other_feature_non_cf,
+                    analyzed_feature,
+                    sampled_analyzed_feature_non_cf,
+                    cf_position,
+                    non_cf_position,
+                )
+            else:
+                im = create_particular_stimulus(
+                    analyzed_feature,
+                    sampled_analyzed_feature_non_cf,
+                    sampled_other_feature_cf,
+                    sampled_other_feature_non_cf,
+                    cf_position,
+                    non_cf_position,
+                )
+
+            im.save(f"{base_dir}/{dict_str}")
+
+        with open(f"{subspace_imgs_path}/{mode}/datadict.pkl", "wb") as handle:
+            pickle.dump(datadict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    print(datadict)
+
+
 if __name__ == "__main__":
     """Driver function to create datasets"""
     parser = argparse.ArgumentParser(description="Generate data.")
@@ -798,9 +1150,22 @@ if __name__ == "__main__":
 
     if args.create_source:
         create_source(patch_size=args.patch_size, num_colors=16)
+    if args.create_subspace:
+        create_subspace_datasets(compositional=args.compositional, analysis="texture")
+        create_subspace_datasets(compositional=args.compositional, analysis="shape")
+    if args.create_das:
+        create_das_datasets(compositional=args.compositional, analysis="texture")
+        create_das_datasets(compositional=args.compositional, analysis="shape")
+        create_das_datasets(
+            compositional=args.compositional, mode="train", analysis="texture"
+        )
+        create_das_datasets(
+            compositional=args.compositional, mode="train", analysis="shape"
+        )
+
     else:  # Create same-different dataset
         aligned_str = "aligned"
-        
+
         if args.compositional > 0:
             args.n_train_tokens = args.compositional
             args.n_val_tokens = args.compositional

@@ -17,6 +17,7 @@ def extract_embeddings(backbone, device, dataset, size=None):
     if size is None:
         size = len(dataset)
     for idx in range(size):
+        print(idx)
         data, _ = dataset[idx]
         inputs = data["pixel_values"].unsqueeze(0)
         inputs = inputs.to(device)
@@ -205,7 +206,6 @@ def train_probe(
 
 
 if __name__ == "__main__":
-    """Driver function that will train a model"""
     # Set device
     try:
         if torch.cuda.is_available():
@@ -303,7 +303,7 @@ if __name__ == "__main__":
 
     df_dict = {"value": [], "stream": [], "layer": [], "val acc": [], "train acc": []}
     # Iterate over things to probe for, places to probe, and layers, training probes for all of them
-    for probe_value in ["shape", "texture", "class", "both_shapes", "both_textures"]:
+    for probe_value in ["class"]:
         for stream in ["stream_1", "stream_2", "cls"]:
             if stream == "cls" and probe_value in ["shape", "texture"]:
                 continue
