@@ -193,8 +193,8 @@ class CountDataset(Dataset):
                 item["label"] = label
                 item["pixel_values"] = item["pixel_values"].squeeze(0)
                 
-                shape_vec = self.task_tokens(int(task.split("_")[0]))
-                color_vec = self.task_tokens(int(task.split("_")[1]))
+                shape_vec = self.task_tokens[int(task.split("_")[0])]
+                color_vec = self.task_tokens[int(task.split("_")[1])]
                 
                 item["task_token"] = torch.cat((shape_vec, color_vec))
 
