@@ -27,6 +27,7 @@ import torch.nn as nn
 from sklearn.metrics import accuracy_score, roc_auc_score
 import wandb
 import sys
+from argparsers import model_train_parser
 
 
 os.chdir(sys.path[0])
@@ -524,6 +525,7 @@ def train_model(
     return model
 
 
+'''
 parser = argparse.ArgumentParser()
 parser.add_argument(
     "--wandb_proj",
@@ -621,8 +623,11 @@ parser.add_argument(
     default=-1,
     help="Create compositional NOISE_RGB dataset with specified # of combinations in train set.",
 )
+'''
+parser = argparse.ArgumentParser()
+args = model_train_parser(parser)
 
-args = parser.parse_args()
+#args = parser.parse_args()
 
 # make deterministic if given a seed
 if args.seed != -1:

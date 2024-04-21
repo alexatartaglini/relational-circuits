@@ -137,12 +137,6 @@ def model_train_parser(parser):
         default=False,
         help="Create dataset with textures.",
     )
-    parser.add_argument(
-        "--disentangled_color",
-        action="store_true",
-        default=False,
-        help="Create dataset with color as an additional third axis of variation (disentangled from texture).",
-    )
 
     # Paremeters for logging, storing models, etc.
     parser.add_argument(
@@ -168,6 +162,12 @@ def model_train_parser(parser):
         "--wandb_run_dir",
         help="Directory where WandB runs should be stored.",
         default=None,
+    )
+    parser.add_argument(
+        "--clip",
+        action="store_true",
+        default=False,
+        help="Train CLIP ViT",
     )
 
     return parser.parse_args()
@@ -294,16 +294,20 @@ def data_generation_parser(parser):
         action="store_true",
         default=False,
         help="Create das analysis images",
+    )
+        
+    parser.add_argument(
         "--texture",
         action="store_true",
         default=False,
         help="Create dataset with textures.",
     )
+    
     parser.add_argument(
-        "--disentangled_color",
+        "--match_to_sample",
         action="store_true",
         default=False,
-        help="Create dataset with color as an additional third axis of variation (disentangled from texture).",
+        help="Create relational match to sample dataset.",
     )
 
     return parser.parse_args()
