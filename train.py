@@ -449,12 +449,8 @@ if __name__ == "__main__":
         args.texture = True
     else:
         args.texture = False
-        args.disentangled_color = False
-    if dataset_str == "NOISE_stc":
-        args.disentangled_color = True
         
     texture = args.texture
-    disentangled_color = args.disentangled_color
 
     # Check arguments
     assert model_type == "vit" or model_type == "clip_vit"
@@ -522,7 +518,6 @@ if __name__ == "__main__":
     train_dataset = SameDifferentDataset(
         data_dir + "/train",
         transform=transform,
-        disentangled_color=disentangled_color,
     )
     train_dataloader = DataLoader(
         train_dataset,
@@ -535,14 +530,12 @@ if __name__ == "__main__":
     val_dataset = SameDifferentDataset(
         data_dir + "/val",
         transform=transform,
-        disentangled_color=disentangled_color,
     )
     val_dataloader = DataLoader(val_dataset, batch_size=512, shuffle=True)
 
     test_dataset = SameDifferentDataset(
         data_dir + "/test",
         transform=transform,
-        disentangled_color=disentangled_color,
     )
     test_dataloader = DataLoader(test_dataset, batch_size=512, shuffle=True)
     
@@ -558,7 +551,6 @@ if __name__ == "__main__":
             ood_dataset = SameDifferentDataset(
                 ood_dir + "/val",
                 transform=transform,
-                disentangled_color=disentangled_color,
             )
             ood_dataloader = DataLoader(ood_dataset, batch_size=512, shuffle=True)
             
