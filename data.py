@@ -11,6 +11,7 @@ from torch.utils.data import Dataset
 import itertools
 from argparsers import data_generation_parser
 import zipfile
+import copy
 
 int_to_label = {1: "same", 0: "different"}
 label_to_int = {
@@ -71,7 +72,7 @@ for c in range(len(ood_colors)):  # ood colors
     color_to_int[f"mean{col}_var10"] = c + len(color_combos)
     
 
-def load_dataset(root_dir, subset=None, disentangled_color=False):
+def load_dataset(root_dir, subset=None):
     """Helper function to load image datasets"""
     
     if not os.path.isdir(root_dir):
@@ -114,10 +115,6 @@ def load_dataset(root_dir, subset=None, disentangled_color=False):
                 "color_1": color_to_int[data_dictionary[dict_key]["c1"]],
                 "color_2": color_to_int[data_dictionary[dict_key]["c2"]],
             }
-            
-            if disentangled_color:
-                im_dict["texture_1"] = data_dictionary[dict_key]["t1"]
-                im_dict["texture_2"] = data_dictionary[dict_key]["t2"]
 
             ims[idx] = im_dict
             idx += 1
@@ -221,12 +218,10 @@ class SameDifferentDataset(Dataset):
         root_dir,
         subset=None,
         transform=None,
-        disentangled_color=False,
     ):
         self.root_dir = root_dir
         self.im_dict = load_dataset(root_dir, subset=subset)
         self.transform = transform
-        self.disentangled_color = disentangled_color
 
     def __len__(self):
         return len(list(self.im_dict.keys()))
@@ -263,31 +258,22 @@ class SameDifferentDataset(Dataset):
         item["shape_2"] = int(self.im_dict[idx]["shape_2"])
         item["color_1"] = self.im_dict[idx]["color_1"]
         item["color_2"] = self.im_dict[idx]["color_2"]
-        
-        if self.disentangled_color:
-            item["texture_1"] = self.im_dict[idx]["texture_1"]
-            item["texture_2"] = self.im_dict[idx]["texture_2"]
 
         return item, im_path
 
 
-def create_noise_image(o, im, texture=False, disentangled_color=False, fuzziness=0):
+def create_noise_image(o, im, texture=False, fuzziness=0):
     """Creates an image that is just Gaussian Noise with particular sigmas and mus
 
     :param o: Object filename defining sigma and mu
     :param im: an image object
     :param texture: use texture to generate colors
-    :param disentangled_color: treat color as a separate axis
     """
     
     color1 = o.split("_")[1].replace("mean", "")
     if texture:
         color2 = color_combos[color_to_int[color1]][-1]
-        
-        if disentangled_color:
-            texture_pixels = Image.open(f"stimuli/source/textures/texture{o.split('-')[0].split('-')[-1]}.png").convert("1")
-        else:
-            texture_pixels = Image.open(f"stimuli/source/textures/texture{color_to_int[color1]}.png").convert("1")
+        texture_pixels = Image.open(f"stimuli/source/textures/texture{color_to_int[color1]}.png").convert("1")
             
         x, y = np.random.randint(low=0, high=texture_pixels.size[0] - im.size[0], size=2)
         texture_pixels = np.array(texture_pixels.crop((x, y, x + im.size[0], y + im.size[0]))).flatten()
@@ -332,7 +318,7 @@ def create_noise_image(o, im, texture=False, disentangled_color=False, fuzziness
     im.putdata(new_data)
 
 
-def generate_different_matches(objects, n, disentangled_color=False):
+def generate_different_matches(objects, n):
     """For each object, list out objects that are either fully different, or different along just one axis
 
     :param objects: filenames of each object
@@ -350,90 +336,39 @@ def generate_different_matches(objects, n, disentangled_color=False):
         for o in objects:
             shape = o.split("_")[0].split("-")[0]
             color = f"{o.split('_')[1]}_{o.split('_')[2][:-4]}"
-            if disentangled_color:
-                texture = o.split("_")[0].split("-")[1]
 
             # Find its possible matches
             if different_type == 0:  # totally different
-                if disentangled_color:
-                    possible_matches = [
-                        o2
-                        for o2 in objects
-                        if (
-                            o2.split("_")[0].split("-")[0] != shape
-                            and f"{o2.split('_')[1]}_{o2.split('_')[2][:-4]}"
-                            != color
-                            and o2.split("_")[0].split("-")[1] != texture
-                        )
-                    ]
-                else:
-                    possible_matches = [
-                        o2
-                        for o2 in objects
-                        if (
-                            o2.split("_")[0].split("-")[0] != shape
-                            and f"{o2.split('_')[1]}_{o2.split('_')[2][:-4]}"
-                            != color
-                        )
-                    ]
+                possible_matches = [
+                    o2
+                    for o2 in objects
+                    if (
+                        o2.split("_")[0].split("-")[0] != shape
+                        and f"{o2.split('_')[1]}_{o2.split('_')[2][:-4]}"
+                        != color
+                    )
+                ]
             elif different_type == 1:  # different shape
-                if disentangled_color:
-                    possible_matches = [
-                        o2
-                        for o2 in objects
-                        if (
-                            o2.split("_")[0].split("-")[0] != shape
-                            and f"{o2.split('_')[1]}_{o2.split('_')[2][:-4]}"
-                            == color
-                            and o2.split("_")[0].split("-")[1] == texture
-                        )
-                    ]
-                else:
-                    possible_matches = [
-                        o2
-                        for o2 in objects
-                        if (
-                            o2.split("_")[0].split("-")[0] != shape
-                            and f"{o2.split('_')[1]}_{o2.split('_')[2][:-4]}"
-                            == color
-                        )
-                    ]
+                possible_matches = [
+                    o2
+                    for o2 in objects
+                    if (
+                        o2.split("_")[0].split("-")[0] != shape
+                        and f"{o2.split('_')[1]}_{o2.split('_')[2][:-4]}"
+                        == color
+                    )
+                ]
             elif different_type == 2:  # different color
-                if disentangled_color:
-                    possible_matches = [
-                        o2
-                        for o2 in objects
-                        if (
-                            o2.split("_")[0].split("-")[0] == shape
-                            and f"{o2.split('_')[1]}_{o2.split('_')[2][:-4]}"
-                            != color
-                            and o2.split("_")[0].split("-")[1] == texture
-                        )
-                    ]
-                else:
-                    possible_matches = [
-                        o2
-                        for o2 in objects
-                        if (
-                            o2.split("_")[0].split("-")[0] == shape
-                            and f"{o2.split('_')[1]}_{o2.split('_')[2][:-4]}"
-                            != color
-                        )
-                    ]
-                if not disentangled_color:
-                    # Reset different type
-                    different_type = -1
-            elif different_type == 3:  # disentangled color
                 possible_matches = [
                     o2
                     for o2 in objects
                     if (
                         o2.split("_")[0].split("-")[0] == shape
                         and f"{o2.split('_')[1]}_{o2.split('_')[2][:-4]}"
-                        == color
-                        and o2.split("_")[0].split("-")[1] != texture
+                        != color
                     )
                 ]
+                different_type = -1
 
             # No matches of this type
             if len(possible_matches) == 0:
@@ -460,7 +395,7 @@ def generate_different_matches(objects, n, disentangled_color=False):
     return pairs_per_obj
 
 
-def generate_pairs(objects, n, possible_coords, disentangled_color=False):
+def generate_pairs(objects, n, possible_coords, match_to_sample=False):
     """Selects pairs of objects for each stimulus, as well as their coordinates
 
     :param objects: filenames of distinct objects
@@ -468,7 +403,7 @@ def generate_pairs(objects, n, possible_coords, disentangled_color=False):
     :param possible_coords: all x, y, coordinates possible given imsize and patch_size
     :return: Dictionary of object pairs for each condition
     """
-    pairs_per_obj = generate_different_matches(objects, n, disentangled_color=disentangled_color)
+    pairs_per_obj = generate_different_matches(objects, n)
 
     all_different_pairs = {}
     # Initialize all_different_pairs with -1 coords and the correct pair idx
@@ -487,8 +422,6 @@ def generate_pairs(objects, n, possible_coords, disentangled_color=False):
     all_same_pairs = {}
     all_different_shape_pairs = {}
     all_different_color_pairs = {}
-    if disentangled_color:
-        all_different_texture_pairs = {}
 
     # Assign positions for object pairs and iterate over different-shape/different-color/same
     for pair in all_different_pairs.keys():
@@ -505,23 +438,14 @@ def generate_pairs(objects, n, possible_coords, disentangled_color=False):
             # Get "different" shape and color
             old_shape = pair[change_obj].split("_")[0].split("-")[0]
             old_color = f"{pair[change_obj].split('_')[1]}_{pair[change_obj].split('_')[2][:-4]}"
-            if disentangled_color:
-                old_texture = pair[change_obj].split("_")[0].split("-")[1]
 
             # Get "same" shape and color
             match_shape = pair[not change_obj].split("_")[0].split("-")[0]
             match_color = f"{pair[not change_obj].split('_')[1]}_{pair[not change_obj].split('_')[2][:-4]}"
-            if disentangled_color:
-                match_texture = pair[not change_obj].split("_")[0].split("-")[1]
 
             # Get filename of objects with either matching shape or matching color
-            if disentangled_color:
-                same_shape_obj = f"{match_shape}-{old_texture}_{old_color}.png"
-                same_color_obj = f"{old_shape}-{old_texture}_{match_color}.png"
-                same_texture_obj = f"{old_shape}-{match_texture}_{old_color}.png"
-            else:
-                same_shape_obj = f"{match_shape}_{old_color}.png"
-                same_color_obj = f"{old_shape}_{match_color}.png"
+            same_shape_obj = f"{match_shape}_{old_color}.png"
+            same_color_obj = f"{old_shape}_{match_color}.png"
 
             same_shape_pair = [""] * 2
             same_shape_pair[change_obj] = same_shape_obj
@@ -529,10 +453,6 @@ def generate_pairs(objects, n, possible_coords, disentangled_color=False):
             same_color_pair = [""] * 2
             same_color_pair[change_obj] = same_color_obj
             same_color_pair[not change_obj] = pair[not change_obj]
-            if disentangled_color:
-                same_texture_pair = [""] * 2
-                same_texture_pair[change_obj] = same_texture_obj
-                same_texture_pair[not change_obj] = pair[not change_obj]
 
             # Add same pair to all_same_pairs, with same coords and and index as all_different pair
             if (pair[not change_obj], pair[not change_obj]) in all_same_pairs.keys():
@@ -544,7 +464,7 @@ def generate_pairs(objects, n, possible_coords, disentangled_color=False):
                 ].append(all_different_pairs[pair]["idx"][i])
             else:
                 all_same_pairs[(pair[not change_obj], pair[not change_obj])] = (
-                    all_different_pairs[pair]
+                    copy.deepcopy(all_different_pairs[pair])
                 )
 
             if old_shape != match_shape:  # Different shapes objs
@@ -558,7 +478,7 @@ def generate_pairs(objects, n, possible_coords, disentangled_color=False):
                     )
                 else:
                     all_different_shape_pairs[tuple(same_color_pair)] = (
-                        all_different_pairs[pair]
+                        copy.deepcopy(all_different_pairs[pair])
                     )
 
             if old_color != match_color:  # Different color objs
@@ -572,8 +492,121 @@ def generate_pairs(objects, n, possible_coords, disentangled_color=False):
                     )
                 else:
                     all_different_color_pairs[tuple(same_shape_pair)] = (
-                        all_different_pairs[pair]
+                        copy.deepcopy(all_different_pairs[pair])
                     )
+                    
+    if match_to_sample:
+        '''
+        # Randomly select "different" pairs to be matched with a sample showing a "same" pair
+        different_relation_pairs_diff = np.random.choice(
+            all_different_pairs.keys(), 
+            size=len(all_different_pairs.keys())
+        )
+        # The remaining "different" pairs will be matched with a sample showing a "different" pair
+        same_relation_pairs_diff = [
+            pair for pair in all_different_pairs.keys() if pair not in different_relation_pairs
+        ]
+        '''
+        
+        all_different_relation_pairs = {}
+        all_same_relation_pairs = {}
+        
+        # Choose indices of "different" pairs that will be matched with a sample showing "same"
+        diff_diff_relation_idx = np.random.choice(range(n // 2), size=(n // 4), replace=False)
+        #print(diff_diff_relation_idx)
+        
+        # Choose indices of "same" pairs that will be matched with a sample showing "different"
+        same_diff_relation_idx = np.random.choice(range(n // 2), size=(n // 4), replace=False)
+        
+        diff_idx = 0
+        diff_rel_stim_idx = 0
+        same_rel_stim_idx = 0
+        for pair in all_different_pairs.keys():
+            # Collect lists of all possible "different" and "same" display pairs
+            different_displays = [display for display in all_different_pairs.keys() if display != pair]
+            same_displays = list(all_same_pairs.keys())
+            
+            num_displays = len(all_different_pairs[pair]["coords"])
+            
+            for i in range(num_displays):
+                if diff_idx in diff_diff_relation_idx:
+                    display = same_displays[np.random.choice(range(len(same_displays)))]
+                    
+                    if pair in all_different_relation_pairs.keys():
+                        all_different_relation_pairs[pair]["coords"].append(all_different_pairs[pair]["coords"][i])
+                        all_different_relation_pairs[pair]["displays"].append(display)
+                        all_different_relation_pairs[pair]["idx"].append(diff_rel_stim_idx)
+                        
+                    else:
+                        all_different_relation_pairs[pair] = {
+                            "coords": [all_different_pairs[pair]["coords"][i]],
+                            "displays": [display],
+                            "idx": [diff_rel_stim_idx],
+                        }
+                    diff_rel_stim_idx += 1
+                else:
+                    display = different_displays[np.random.choice(range(len(different_displays)))]
+                    
+                    if pair in all_same_relation_pairs.keys():
+                        all_same_relation_pairs[pair]["coords"].append(all_different_pairs[pair]["coords"][i])
+                        all_same_relation_pairs[pair]["displays"].append(display)
+                        all_same_relation_pairs[pair]["idx"].append(same_rel_stim_idx)
+                    else:
+                        all_same_relation_pairs[pair] = {
+                            "coords": [all_different_pairs[pair]["coords"][i]],
+                            "displays": [display],
+                            "idx": [same_rel_stim_idx],
+                        }
+                    same_rel_stim_idx += 1
+                        
+                diff_idx += 1
+        
+        same_idx = 0
+        for pair in all_same_pairs.keys():
+            # Collect lists of all possible "different" and "same" display pairs
+            different_displays = list(all_different_pairs.keys())
+            same_displays = [display for display in all_same_pairs.keys() if display != pair]
+            
+            num_displays = len(all_same_pairs[pair]["coords"])
+            
+            for i in range(num_displays):
+                if same_idx in same_diff_relation_idx:
+                    display = different_displays[np.random.choice(range(len(different_displays)))]
+                    
+                    if pair in all_different_relation_pairs.keys():
+                        all_different_relation_pairs[pair]["coords"].append(all_same_pairs[pair]["coords"][i])
+                        all_different_relation_pairs[pair]["displays"].append(display)
+                        all_different_relation_pairs[pair]["idx"].append(diff_rel_stim_idx)
+                    else:
+                        all_different_relation_pairs[pair] = {
+                            "coords": [all_same_pairs[pair]["coords"][i]],
+                            "displays": [display],
+                            "idx": [diff_rel_stim_idx],
+                        }
+                    diff_rel_stim_idx += 1
+                        
+                else:
+                    display = same_displays[np.random.choice(range(len(same_displays)))]
+                    
+                    if pair in all_same_relation_pairs.keys():
+                        all_same_relation_pairs[pair]["coords"].append(all_same_pairs[pair]["coords"][i])
+                        all_same_relation_pairs[pair]["displays"].append(display)
+                        all_same_relation_pairs[pair]["idx"].append(same_rel_stim_idx)
+                    else:
+                        all_same_relation_pairs[pair] = {
+                            "coords": [all_same_pairs[pair]["coords"][i]],
+                            "displays": [display],
+                            "idx": [same_rel_stim_idx],
+                        }
+                    same_rel_stim_idx += 1
+                        
+                same_idx += 1
+                
+        return (
+            all_different_relation_pairs,
+            all_same_relation_pairs,
+        )
+        
     return (
         all_different_pairs,
         all_different_shape_pairs,
@@ -593,7 +626,7 @@ def create_stimuli(
     buffer_factor=8,
     compositional=-1,
     texture=False, 
-    disentangled_color=False,
+    match_to_sample=False,
 ):
     """
     Creates n same_different stimuli with (n // 2) stimuli assigned to each class. If
@@ -624,40 +657,28 @@ def create_stimuli(
     obj_size = patch_size
 
     # Place in ViT patch grid
-    coords = np.linspace(
-        0, im_size, num=(im_size // patch_size), endpoint=False, dtype=int
+    coords = list(
+        np.linspace(
+            0, im_size, num=(im_size // patch_size), endpoint=False, dtype=int
+        )
     )
-    new_coords = []
-    for i in range(0, len(coords)):
-        new_coords.append(coords[i])
 
-    coords = new_coords
     possible_coords = list(itertools.product(coords, repeat=2))  # 2 Objects per image
-
-    if disentangled_color:
+    
+    if match_to_sample:
+        display_coords = [(0, 0), (32, 0)]
+        non_display_coords = [coord for coord in possible_coords if coord not in display_coords]
+        
         (
             all_different_pairs,
-            all_different_shape_pairs,
-            all_different_color_pairs,
-            all_different_texture_pairs,
-            all_different_shape_color_pairs,
-            all_different_shape_texture_pairs,
-            all_different_color_texture_pairs,
             all_same_pairs,
-        ) = generate_pairs(objects, n, possible_coords, disentangled_color=disentangled_color)
+        ) = generate_pairs(objects, n, non_display_coords, match_to_sample=True)
         
         items = zip(
-            ["same", "different", "different-shape", "different-color", "different-texture",
-             "different-shape-color", "different-shape-texture", "different-color-texture"],
+            ["same", "different"],
             [
                 all_same_pairs,
                 all_different_pairs,
-                all_different_shape_pairs,
-                all_different_color_pairs,
-                all_different_texture_pairs,
-                all_different_shape_color_pairs,
-                all_different_shape_texture_pairs,
-                all_different_color_texture_pairs,
             ],
         )
     else:
@@ -666,7 +687,7 @@ def create_stimuli(
             all_different_shape_pairs,
             all_different_color_pairs,
             all_same_pairs,
-        ) = generate_pairs(objects, n, possible_coords, disentangled_color=disentangled_color)
+        ) = generate_pairs(objects, n, possible_coords)
         
         items = zip(
             ["same", "different", "different-shape", "different-color"],
@@ -700,11 +721,14 @@ def create_stimuli(
 
     for sd_class, item_dict in items:
         setting = f"{patch_dir}/{condition}/{sd_class}"
-
+        
         for key in item_dict.keys():
 
             positions = item_dict[key]["coords"]
             idxs = item_dict[key]["idx"]
+            
+            if match_to_sample:
+                displays = item_dict[key]["displays"]
 
             if len(positions) == 0:
                 continue
@@ -722,8 +746,8 @@ def create_stimuli(
                     ]
 
                     # Sample noise
-                    create_noise_image(obj1, object_ims[0], texture=texture, disentangled_color=disentangled_color)
-                    create_noise_image(obj2, object_ims[1], texture=texture, disentangled_color=disentangled_color)
+                    create_noise_image(obj1, object_ims[0], texture=texture)
+                    create_noise_image(obj2, object_ims[1], texture=texture)
     
                     obj1_props = obj1[:-4].split("_")  # List of shape, color
                     obj2_props = obj2[:-4].split("_")  # List of shape, color
@@ -736,6 +760,8 @@ def create_stimuli(
                         obj2_props[0],
                         f"{obj2_props[1]}_{obj2_props[2]}",
                     ]
+                    
+                    print(p)
 
                     datadict[f"{condition}/{sd_class}/{stim_idx}.png"] = {
                         "sd-label": label_to_int[sd_class],
@@ -747,10 +773,39 @@ def create_stimuli(
                         "s2": obj2_props[0].split("-")[0],
                     }
                     
-                    if disentangled_color:
-                        datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["t1"] = obj1_props[0].split("-")[1]
-                        datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["t2"] = obj2_props[0].split("-")[1]
-    
+                    # Get display objects for match to sample
+                    if match_to_sample:
+                        p = p + display_coords
+                        
+                        display1 = displays[i][0]
+                        display2 = displays[i][1]
+                        object_ims.append(object_ims_all[display1].copy())
+                        object_ims.append(object_ims_all[display2].copy())
+                        
+                        # Sample noise
+                        create_noise_image(display1, object_ims[2], texture=texture)
+                        create_noise_image(display2, object_ims[3], texture=texture)
+                        
+                        display1_props = obj1[:-4].split("_")  # List of shape, color
+                        display2_props = obj2[:-4].split("_")  # List of shape, color
+                        
+                        display1_props = [
+                            display1_props[0],
+                            f"{display1_props[1]}_{display1_props[2]}",
+                        ]
+                        display2_props = [
+                            display2_props[0],
+                            f"{display2_props[1]}_{display2_props[2]}",
+                        ]
+                        
+                        # Add display data to datadict
+                        datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["display1-pos"] = 0
+                        datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["display2-pos"] = 1
+                        datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["display1-c"] = display1_props[1]
+                        datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["display2-c"] = display2_props[1]
+                        datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["display1-s"] = display1_props[0].split("-")[0]
+                        datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["display2-s"] = display2_props[0].split("-")[0]
+                        
                     # Create blank image and paste objects
                     base = Image.new("RGB", (im_size, im_size), (255, 255, 255))
 
@@ -770,7 +825,7 @@ def create_stimuli(
 
 
 def call_create_stimuli(
-    patch_size, n_train, n_val, n_test, patch_dir, im_size=224, compositional=-1, texture=False, disentangled_color=False,
+    patch_size, n_train, n_val, n_test, patch_dir, im_size=224, compositional=-1, texture=False, match_to_sample=False,
 ):
     """Creates train, val, and test datasets
 
@@ -782,17 +837,15 @@ def call_create_stimuli(
     :param im_size: Total image size, defaults to 224
     :param compositional: Whether to create a compositional dataset (hold out certain combos), defaults to no
     :param texture: Whether to use textured stimuli
-    :param disentangled_color: Whether to treat color as a separate, third axis of variation vs. shape & texture
     """
     # Assert patch size and im size make sense
     # assert im_size % patch_size == 0
 
     os.makedirs(patch_dir, exist_ok=True)
     
-    sd_classes = ["same", "different", "different-shape", "different-color"]
-    if disentangled_color:
-        sd_classes += ["different-texture", "different-shape-color", 
-                       "different-shape-texture", "different-color-texture"]
+    sd_classes = ["same", "different"]
+    if not match_to_sample:
+        sd_classes += ["different-shape", "different-color"]
 
     if "ood" in patch_dir:
         conditions = ["test", "val"]
@@ -810,6 +863,8 @@ def call_create_stimuli(
     # Collect object image paths
     if "ood" in patch_dir:
         stim_type = f"{patch_dir.split('/')[1]}/{patch_dir.split('/')[2]}"
+    elif "mts" in patch_dir:
+        stim_type = "NOISE_RGB"
     else:
         stim_type = f"{patch_dir.split('/')[1]}"
         
@@ -867,7 +922,7 @@ def call_create_stimuli(
             "train",
             compositional=compositional,
             texture=texture, 
-            disentangled_color=disentangled_color,
+            match_to_sample=match_to_sample,
         )
     create_stimuli(
         n_val,
@@ -879,7 +934,7 @@ def call_create_stimuli(
         "val",
         compositional=compositional,
         texture=texture, 
-        disentangled_color=disentangled_color,
+        match_to_sample=match_to_sample,
     )
     create_stimuli(
         n_test,
@@ -891,7 +946,7 @@ def call_create_stimuli(
         "test",
         compositional=compositional,
         texture=texture, 
-        disentangled_color=disentangled_color,
+        match_to_sample=match_to_sample,
     )
 
 
@@ -979,8 +1034,8 @@ def create_source(
 def create_particular_stimulus(
     shape_1,
     shape_2,
-    texture_1,
-    texture_2,
+    color_1,
+    color_2,
     position_1,
     position_2,
     buffer_factor=8,
@@ -1000,8 +1055,8 @@ def create_particular_stimulus(
     x_2 = coords[position_2[0]]
     y_2 = coords[position_2[1]]
 
-    path1 = f"{shape_1}-{texture_1}.png"
-    path2 = f"{shape_2}-{texture_2}.png"
+    path1 = f"{shape_1}_{color_1}.png"
+    path2 = f"{shape_2}_{color_2}.png"
 
     im1 = Image.open(f"stimuli/source/NOISE_RGB/{patch_size}/{path1}").convert("RGB")
     im1 = im1.resize(
@@ -1044,7 +1099,7 @@ def create_particular_stimulus(
 def create_subspace_datasets(
     patch_size=32,
     mode="val",
-    analysis="texture",
+    analysis="color",
     split_channels=True,
     compositional=-1,
     samples=200,
@@ -1052,7 +1107,7 @@ def create_subspace_datasets(
     num_patch = 224 // patch_size
 
     if analysis == "shape":
-        other_feat_str = "texture"
+        other_feat_str = "color"
     else:
         other_feat_str = "shape"
 
@@ -1072,17 +1127,17 @@ def create_subspace_datasets(
     )
 
     all_ims = glob.glob(f"stimuli/source/NOISE_RGB/{patch_size}/*.png")
-    all_ims = [im.split("/")[-1][:-4].split("-") for im in all_ims]
+    all_ims = [im.split("/")[-1][:-4].split("_") for im in all_ims]
     all_ims = [
-        [im[0], f"{im[1]}-{im[2]}-{im[3]}"] for im in all_ims
-    ]  # all_ims is a list of (shape, texture) tuples
+        [im[0], f"{im[1]}_{im[2]}"] for im in all_ims
+    ]  # all_ims is a list of (shape, color) tuples
     shapes = set([im[0] for im in all_ims])
-    textures = set([im[1] for im in all_ims])
-    feature_dict = {"shape": sorted(list(shapes)), "texture": sorted(list(textures))}
+    colors = set([im[1] for im in all_ims])
+    feature_dict = {"shape": sorted(list(shapes)), "color": sorted(list(colors))}
 
     stim_dir = f"stimuli/NOISE_RGB/aligned/N_{patch_size}/{train_str}"
     base_imfiles = glob.glob(f"{stim_dir}/{mode}/different-{analysis}/*.png")
-    stim_dict = pickle.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
+    stim_dict = pkl.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
 
     random.shuffle(base_imfiles)
     base_imfiles = base_imfiles[:samples]
@@ -1128,7 +1183,7 @@ def create_subspace_datasets(
         print(edited_idx)
         print(not_edited_idx)
 
-        # For each texture/shape present in the "different" stimulus, create versions with every shape/texture
+        # For each color/shape present in the "different" stimulus, create versions with every shape/color
         feature0 = diff_stim[f"{analysis[0]}{edited_idx}"]
         feature1 = same_stim[f"{analysis[0]}1"]
 
@@ -1146,10 +1201,10 @@ def create_subspace_datasets(
                 feat_1 = feature
                 position_1 = diff_stim[f"pos{edited_idx}"]
 
-                if analysis == "texture":
+                if analysis == "color":
                     dict_str = f"{feature_str}_shape{other_idx}.png"
                 else:
-                    dict_str = f"{feature_str}_texture{other_idx}.png"
+                    dict_str = f"{feature_str}_color{other_idx}.png"
 
                 datadict[dict_str] = {
                     "pos1": position_1,
@@ -1163,7 +1218,7 @@ def create_subspace_datasets(
                 position_1 = [position_1 % num_patch, position_1 // num_patch]
                 position_2 = [position_2 % num_patch, position_2 // num_patch]
 
-                if analysis == "texture":
+                if analysis == "color":
                     im = create_particular_stimulus(
                         other_1, other_2, feat_1, feat_2, position_1, position_2
                     )
@@ -1176,13 +1231,13 @@ def create_subspace_datasets(
                 other_idx += 1
 
         with open(f"{base_dir}/datadict.pkl", "wb") as handle:
-            pickle.dump(datadict, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            pkl.dump(datadict, handle, protocol=pkl.HIGHEST_PROTOCOL)
 
 
 def create_das_datasets(
     patch_size=32,
     mode="val",
-    analysis="texture",
+    analysis="color",
     compositional=-1,
     samples=2500,
     variations=1,  # How many variations of the counterfactual to make
@@ -1190,7 +1245,7 @@ def create_das_datasets(
     num_patch = 224 // patch_size
 
     if analysis == "shape":
-        other_feat_str = "texture"
+        other_feat_str = "color"
     else:
         other_feat_str = "shape"
 
@@ -1210,17 +1265,17 @@ def create_das_datasets(
     )
 
     all_ims = glob.glob(f"stimuli/source/NOISE_RGB/{patch_size}/*.png")
-    all_ims = [im.split("/")[-1][:-4].split("-") for im in all_ims]
+    all_ims = [im.split("/")[-1][:-4].split("_") for im in all_ims]
     all_ims = [
-        [im[0], f"{im[1]}-{im[2]}-{im[3]}"] for im in all_ims
-    ]  # all_ims is a list of (shape, texture) tuples
+        [im[0], f"{im[1]}_{im[2]}"] for im in all_ims
+    ]  # all_ims is a list of (shape, color) tuples
     shapes = set([im[0] for im in all_ims])
-    textures = set([im[1] for im in all_ims])
-    feature_dict = {"shape": sorted(list(shapes)), "texture": sorted(list(textures))}
+    colors = set([im[1] for im in all_ims])
+    feature_dict = {"shape": sorted(list(shapes)), "color": sorted(list(colors))}
 
     stim_dir = f"stimuli/NOISE_RGB/aligned/N_{patch_size}/{train_str}"
     base_imfiles = glob.glob(f"{stim_dir}/{mode}/different-{analysis}/*.png")
-    stim_dict = pickle.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
+    stim_dict = pkl.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
 
     random.shuffle(base_imfiles)
     base_imfiles = base_imfiles[:samples]
@@ -1246,7 +1301,7 @@ def create_das_datasets(
             edited_idx = 1
             non_edited_idx = 2
             # Create a new stimuli with an object that is different in the other feature dimension, but same in
-            # the analyzed feature dimension (i.e if looking for shape subspace, fix shape property and sample texture)
+            # the analyzed feature dimension (i.e if looking for shape subspace, fix shape property and sample color)
 
             # Terminology:
             # counterfactual object = object from which to inject analyzed feature
@@ -1299,7 +1354,7 @@ def create_das_datasets(
                 non_cf_position // num_patch,
             ]
 
-            if analysis == "texture":
+            if analysis == "color":
                 im = create_particular_stimulus(
                     sampled_other_feature_cf,
                     sampled_other_feature_non_cf,
@@ -1321,8 +1376,7 @@ def create_das_datasets(
             im.save(f"{base_dir}/{dict_str}")
 
         with open(f"{subspace_imgs_path}/{mode}/datadict.pkl", "wb") as handle:
-            pickle.dump(datadict, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    print(datadict)
+            pkl.dump(datadict, handle, protocol=pkl.HIGHEST_PROTOCOL)
 
 
 if __name__ == "__main__":
@@ -1330,39 +1384,33 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate data.")
     args = data_generation_parser(parser)
 
-    if args.create_source:
-        create_source(patch_size=args.patch_size, num_colors=16)
     if args.create_subspace:
-        create_subspace_datasets(compositional=args.compositional, analysis="texture")
+        create_subspace_datasets(compositional=args.compositional, analysis="color")
         create_subspace_datasets(compositional=args.compositional, analysis="shape")
-    if args.create_das:
-        create_das_datasets(compositional=args.compositional, analysis="texture")
+    elif args.create_das:
+        create_das_datasets(compositional=args.compositional, analysis="color")
         create_das_datasets(compositional=args.compositional, analysis="shape")
         create_das_datasets(
-            compositional=args.compositional, mode="train", analysis="texture"
+            compositional=args.compositional, mode="train", analysis="color"
         )
         create_das_datasets(
             compositional=args.compositional, mode="train", analysis="shape"
         )
-
-    else:  # Create same-different dataset
-        aligned_str = "aligned"
+    elif args.create_source:
         create_source(source=args.source, patch_size=args.patch_size)
     else:  # Create same-different dataset
         aligned_str = "aligned"
         
         if args.source == "NOISE_st":
             args.texture = True
-            args.disentangled_color = False
         elif args.source == "NOISE_stc":
             args.texture = True
-            args.disentangled_color = True
         else:
             if args.texture:
-                if args.disentangled_color:
-                    args.source = "NOISE_stc"
-                else:
-                    args.source = "NOISE_st"
+                args.source = "NOISE_st"
+                
+        if args.match_to_sample:
+            args.source = "mts"
 
         if args.compositional > 0:
             args.n_train_tokens = args.compositional
@@ -1395,5 +1443,5 @@ if __name__ == "__main__":
             patch_dir,
             compositional=args.compositional,
             texture=args.texture,
-            disentangled_color=args.disentangled_color,
+            match_to_sample=args.match_to_sample,
         )
