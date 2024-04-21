@@ -704,7 +704,7 @@ else:
 
 path_elements = [
     model_string,
-    args.train_dataset,
+    args.dataset_str,
     aug_string,
     f"trainsize_{args.n_images_per_task}_{comp_str}",
 ]
@@ -726,20 +726,20 @@ for root in ["logs"]:
 
 log_dir = "logs/{0}/{1}/{2}/{3}".format(
     model_string,
-    args.train_dataset,
+    args.dataset_str,
     aug_string,
     f"trainsize_{args.n_images_per_task}_{comp_str}",
 )
 
 # Construct train set + DataLoader
 train_dir = "stimuli/counting/{0}/{1}/{2}".format(
-    args.train_dataset,
+    args.dataset_str,
     aug_string,
     f"trainsize_{args.n_images_per_task}_{comp_str}",
 )
 
 train_dataset = CountDataset(
-    stim_type=args.train_dataset,
+    stim_type=args.dataset_str,
     split="train",
     patch_size=args.patch_size,
     n_per_class=args.n_images_per_task,
@@ -757,7 +757,7 @@ train_dataloader = DataLoader(
 )
 
 val_dataset = CountDataset(
-    stim_type=args.train_dataset,
+    stim_type=args.dataset_str,
     split="val",
     patch_size=args.patch_size,
     n_per_class=args.n_images_per_task,
@@ -769,7 +769,7 @@ val_dataset = CountDataset(
 val_dataloader = DataLoader(val_dataset, batch_size=1024, shuffle=True)
 
 test_dataset = CountDataset(
-    stim_type=args.train_dataset,
+    stim_type=args.dataset_str,
     split="test",
     patch_size=args.patch_size,
     n_per_class=args.n_images_per_task,
@@ -803,7 +803,7 @@ exp_config = {
     "clip": args.clip,
     "patch_size": args.patch_size,
     "pretrained": args.pretrained,
-    "train_dataset": args.train_dataset,
+    "train_dataset": args.dataset_str,
     "aug": aug_string,
     "compositional": args.compositional,
     "n_images_per_task": args.n_images_per_task,
@@ -836,7 +836,7 @@ else:
     )
 
 run_id = wandb.run.id
-run.name = f"COUNT{args.k}_{model_string}_{args.train_dataset}-{args.patch_size}_{comp_str}_{run_id}"
+run.name = f"COUNT{args.k}_{model_string}_{args.dataset_str}-{args.patch_size}_{comp_str}_{run_id}"
 
 # Run training loop + evaluations
 model = train_model(
