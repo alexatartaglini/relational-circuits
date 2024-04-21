@@ -24,7 +24,7 @@ from transformers import (
 # import clip
 from torch.utils.data import DataLoader
 import torch.nn as nn
-from sklearn.metrics import accuracy_score, roc_auc_score
+from sklearn.metrics import accuracy_score
 import wandb
 import sys
 from argparsers import model_train_parser
@@ -359,7 +359,6 @@ def evaluation(
     with torch.no_grad():
         running_loss_val = 0.0
         running_acc_val = 0.0
-        running_roc_auc = 0.0
         running_shape_acc_val = 0.0
         running_color_acc_val = 0.0
 
@@ -387,7 +386,6 @@ def evaluation(
 
             preds = output_logits.argmax(1)
             acc = accuracy_score(labels.to("cpu"), preds.to("cpu"))
-            roc_auc = roc_auc_score(labels.to("cpu"), output_logits.to("cpu")[:, -1])
 
             if args.auxiliary_loss:
                 aux_loss, shape_acc, color_acc = compute_auxiliary_loss(
@@ -399,23 +397,19 @@ def evaluation(
 
             running_acc_val += acc * inputs.size(0)
             running_loss_val += loss.detach().item() * inputs.size(0)
-            running_roc_auc += roc_auc * inputs.size(0)
 
         epoch_loss_val = running_loss_val / len(val_dataset)
         epoch_acc_val = running_acc_val / len(val_dataset)
-        epoch_roc_auc = running_roc_auc / len(val_dataset)
 
         print()
         print("Val loss: {:.4f}".format(epoch_loss_val))
         print("Val acc: {:.4f}".format(epoch_acc_val))
-        print("Val ROC-AUC: {:.4f}".format(epoch_roc_auc))
         print()
 
         return {
             "Label": "Val",
             "loss": epoch_loss_val,
             "acc": epoch_acc_val,
-            "roc_auc": epoch_roc_auc,
         }
 
 
@@ -495,7 +489,6 @@ def train_model(
 
         metric_dict["val_loss"] = result["loss"]
         metric_dict["val_acc"] = result["acc"]
-        metric_dict["val_roc_auc"] = result["roc_auc"]
 
         print("\nUnseen combinations: \n")
         result = evaluation(
@@ -512,7 +505,6 @@ def train_model(
 
         metric_dict["test_loss"] = result["loss"]
         metric_dict["test_acc"] = result["acc"]
-        metric_dict["test_roc_auc"] = result["roc_auc"]
 
         if scheduler:
             scheduler.step(
