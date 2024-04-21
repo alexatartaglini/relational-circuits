@@ -76,6 +76,8 @@ class ViTEmbeddings(nn.Module):
         embeddings = embeddings + self.position_embeddings
         embeddings = self.dropout(embeddings)
         
+        print(embeddings.shape)
+        print(self.task_tokens.shape)
         embeddings = torch.cat((embeddings, self.task_tokens), dim=1)
 
         return embeddings
