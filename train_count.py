@@ -277,7 +277,7 @@ def train_model_epoch(
         with torch.set_grad_enabled(True):
             optimizer.zero_grad()
 
-            if "clip" in args.model_type:
+            if args.clip:
                 # Add task token
                 model.vision_model.embeddings.task_tokens = task_tokens
                 
@@ -367,7 +367,7 @@ def evaluation(
             task_tokens = d["task_token"].to(device)
             labels = d["label"].to(device)
 
-            if "clip" in args.model_type:
+            if args.clip:
                 # Add task token
                 model.vision_model.embeddings.task_tokens = task_tokens
                 
