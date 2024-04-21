@@ -113,7 +113,7 @@ class CLIPVisionEmbeddings(nn.Module):
         embeddings = torch.cat([class_embeds, patch_embeds], dim=1)
         embeddings = embeddings + self.position_embedding(self.position_ids)
         
-        embeddings = torch.cat((embeddings, self.task_tokens), dim=1)
+        embeddings = torch.cat((embeddings, self.task_tokens.unsqueeze(1)), dim=1)
         
         return embeddings
 
