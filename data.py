@@ -102,19 +102,35 @@ def load_dataset(root_dir, subset=None):
         for im in im_paths:
             pixels = Image.open(im)
             dict_key = os.path.join(*im.split("/")[-3:])
-            im_dict = {
-                "image": pixels,
-                "image_path": im,
-                "label": l,
-                "stream_1": data_dictionary[dict_key]["pos1"]
-                + 1,  # +1 accounts for the CLS token
-                "stream_2": data_dictionary[dict_key]["pos2"]
-                + 1,  # +1 accounts for the CLS token
-                "shape_1": data_dictionary[dict_key]["s1"],
-                "shape_2": data_dictionary[dict_key]["s2"],
-                "color_1": color_to_int[data_dictionary[dict_key]["c1"]],
-                "color_2": color_to_int[data_dictionary[dict_key]["c2"]],
-            }
+            
+            try:
+                im_dict = {
+                    "image": pixels,
+                    "image_path": im,
+                    "label": l,
+                    "stream_1": data_dictionary[dict_key]["pos1"]
+                    + 1,  # +1 accounts for the CLS token
+                    "stream_2": data_dictionary[dict_key]["pos2"]
+                    + 1,  # +1 accounts for the CLS token
+                    "shape_1": data_dictionary[dict_key]["s1"],
+                    "shape_2": data_dictionary[dict_key]["s2"],
+                    "color_1": color_to_int[data_dictionary[dict_key]["c1"]],
+                    "color_2": color_to_int[data_dictionary[dict_key]["c2"]],
+                }
+            except KeyError:
+                im_dict = {
+                    "image": pixels,
+                    "image_path": im,
+                    "label": l,
+                    "stream_1": data_dictionary[dict_key]["pos1"]
+                    + 1,  # +1 accounts for the CLS token
+                    "stream_2": data_dictionary[dict_key]["pos2"]
+                    + 1,  # +1 accounts for the CLS token
+                    "shape_1": data_dictionary[dict_key]["s1"],
+                    "shape_2": data_dictionary[dict_key]["s2"],
+                    "color_1": color_to_int[data_dictionary[dict_key]["t1"]],
+                    "color_2": color_to_int[data_dictionary[dict_key]["t2"]],
+                }
 
             ims[idx] = im_dict
             idx += 1
@@ -425,6 +441,7 @@ def generate_pairs(objects, n, possible_coords, match_to_sample=False):
 
     # Assign positions for object pairs and iterate over different-shape/different-color/same
     for pair in all_different_pairs.keys():
+        
         for i in range(len(all_different_pairs[pair]["coords"])):
             c = random.sample(possible_coords, k=2)
             all_different_pairs[pair]["coords"][
@@ -455,17 +472,22 @@ def generate_pairs(objects, n, possible_coords, match_to_sample=False):
             same_color_pair[not change_obj] = pair[not change_obj]
 
             # Add same pair to all_same_pairs, with same coords and and index as all_different pair
-            if (pair[not change_obj], pair[not change_obj]) in all_same_pairs.keys():
-                all_same_pairs[(pair[not change_obj], pair[not change_obj])][
-                    "coords"
-                ].append(all_different_pairs[pair]["coords"][i])
-                all_same_pairs[(pair[not change_obj], pair[not change_obj])][
-                    "idx"
-                ].append(all_different_pairs[pair]["idx"][i])
-            else:
-                all_same_pairs[(pair[not change_obj], pair[not change_obj])] = (
-                    copy.deepcopy(all_different_pairs[pair])
-                )
+            total_same = 0
+            for pair2 in all_same_pairs.keys():
+                total_same += len(all_same_pairs[pair2]["coords"])
+            
+            if total_same < n // 2:
+                if (pair[not change_obj], pair[not change_obj]) in all_same_pairs.keys():
+                    all_same_pairs[(pair[not change_obj], pair[not change_obj])][
+                        "coords"
+                    ].append(all_different_pairs[pair]["coords"][i])
+                    all_same_pairs[(pair[not change_obj], pair[not change_obj])][
+                        "idx"
+                    ].append(all_different_pairs[pair]["idx"][i])
+                else:
+                    all_same_pairs[(pair[not change_obj], pair[not change_obj])] = (
+                        copy.deepcopy(all_different_pairs[pair])
+                    )
 
             if old_shape != match_shape:  # Different shapes objs
                 # Add same color pair to all_different_shape_pairs, with same coords and and index as all_different pair
@@ -736,6 +758,10 @@ def create_stimuli(
             for i in range(len(positions)):
                 if key[0] in object_ims_all.keys() and key[1] in object_ims_all.keys():
                     p = positions[i]
+                    
+                    if p == -1:
+                        continue
+                    
                     stim_idx = idxs[i]
 
                     obj1 = key[0]
@@ -760,8 +786,6 @@ def create_stimuli(
                         obj2_props[0],
                         f"{obj2_props[1]}_{obj2_props[2]}",
                     ]
-                    
-                    print(p)
 
                     datadict[f"{condition}/{sd_class}/{stim_idx}.png"] = {
                         "sd-label": label_to_int[sd_class],
