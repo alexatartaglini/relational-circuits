@@ -58,6 +58,13 @@ parser.add_argument(
     help="Name of the directory containing stimuli",
     default="NOISE_RGB",
 )
+parser.add_argument(
+    "--pretrain_path",
+    help="Path of model weights to load before fine-tuning.",
+    type=str,
+    required=False,
+    default="",
+)
 parser.add_argument("--num_gpus", type=int, default=1, required=False)
 
 args = parser.parse_args()
@@ -111,7 +118,8 @@ sweep_configuration = {
         "model_type": {"values": [args.model_type]},
         "batch_size": {"values": [128]},
         "probe_layer": {"values": [args.probe_layer]},
-        "compositional": {"values": [-1, 32]}
+        "compositional": {"values": [-1, 32]},
+        "pretrain_path": {"values": [args.pretrain_path]}
     },
 }
 
