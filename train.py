@@ -474,6 +474,7 @@ if __name__ == "__main__":
         pretrained,
         int_to_label,
         label_to_int,
+        pretrain_path=args.pretrain_path,
     )
     model = model.to(device)  # Move model to GPU if possible
 

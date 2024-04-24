@@ -22,6 +22,13 @@ def model_train_parser(parser):
         required=True,
     )
     parser.add_argument(
+        "--pretrain_path",
+        help="Path of model weights to load before fine-tuning.",
+        type=str,
+        required=False,
+        default="",
+    )
+    parser.add_argument(
         "--patch_size", type=int, default=32, help="Size of patch (eg. 16 or 32)."
     )
     parser.add_argument(

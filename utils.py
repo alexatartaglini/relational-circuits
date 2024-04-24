@@ -42,7 +42,7 @@ def get_config():
             return yaml.load(stream, Loader=yaml.FullLoader)
 
 
-def load_model_from_path(model_path, model_type, patch_size, im_size):
+def load_model_from_path(model_path, model_type, patch_size, im_size, train=False):
 
     # Load models
     if model_type == "vit":
@@ -68,7 +68,11 @@ def load_model_from_path(model_path, model_type, patch_size, im_size):
     # Load checkpoint
     ckpt = torch.load(model_path)
     model.load_state_dict(ckpt)
-    model.eval()
+    
+    if train:
+        model.train()
+    else:
+        model.eval()
 
     return model, transform
 
@@ -103,46 +107,53 @@ def load_model_for_training(
     pretrained,
     int_to_label,
     label_to_int,
+    pretrain_path="",
 ):
     # Load models
     if model_type == "vit":
         model_string = "vit_b{0}".format(patch_size)
         model_path = f"google/vit-base-patch{patch_size}-{im_size}-in21k"
 
-        if pretrained:
-            model = ViTForImageClassification.from_pretrained(
-                model_path, num_labels=2, id2label=int_to_label, label2id=label_to_int
-            )
+        if len(pretrain_path) > 0:
+            model, transform = load_model_from_path(pretrain_path, model_type, patch_size, im_size, train=True)
         else:
-            configuration = ViTConfig(
-                patch_size=patch_size, image_size=im_size, num_labels=2
-            )
-            model = ViTForImageClassification(configuration)
-
-        transform = ViTImageProcessor(do_resize=False).from_pretrained(model_path)
+            if pretrained:
+                model = ViTForImageClassification.from_pretrained(
+                    model_path, num_labels=2, id2label=int_to_label, label2id=label_to_int
+                )
+            else:
+                configuration = ViTConfig(
+                    patch_size=patch_size, image_size=im_size, num_labels=2
+                )
+                model = ViTForImageClassification(configuration)
+    
+            transform = ViTImageProcessor(do_resize=False).from_pretrained(model_path)
 
     elif "clip" in model_type:
         model_string = "clip_vit_b{0}".format(patch_size)
         model_path = f"openai/clip-vit-base-patch{patch_size}"
 
-        if pretrained:
-            model = CLIPVisionModelWithProjection.from_pretrained(
-                model_path,
-                hidden_act="quick_gelu",
-                id2label=int_to_label,
-                label2id=label_to_int,
-            )
+        if len(pretrain_path) > 0:
+            model, transform = load_model_from_path(pretrain_path, model_type, patch_size, im_size, train=True)
         else:
-            configuration = CLIPConfig(patch_size=patch_size, im_size=im_size)
-            model = CLIPVisionModelWithProjection(configuration)
-
-        transform = AutoProcessor.from_pretrained(model_path)
-
-        # Replace projection with correct dimensions
-        in_features = model.visual_projection.in_features
-        # @mlepori edit, CLIPVisionModelWithProjection doesn't have a config option for the visual projection to have a bias
-        # so we shouldn't have one either
-        model.visual_projection = nn.Linear(in_features, 2, bias=False)
+            if pretrained:
+                model = CLIPVisionModelWithProjection.from_pretrained(
+                    model_path,
+                    hidden_act="quick_gelu",
+                    id2label=int_to_label,
+                    label2id=label_to_int,
+                )
+            else:
+                configuration = CLIPConfig(patch_size=patch_size, im_size=im_size)
+                model = CLIPVisionModelWithProjection(configuration)
+                
+            # Replace projection with correct dimensions
+            in_features = model.visual_projection.in_features
+            # @mlepori edit, CLIPVisionModelWithProjection doesn't have a config option for the visual projection to have a bias
+            # so we shouldn't have one either
+            model.visual_projection = nn.Linear(in_features, 2, bias=False)
+    
+            transform = AutoProcessor.from_pretrained(model_path)
 
     return model, transform, model_string
 
