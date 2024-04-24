@@ -413,6 +413,7 @@ if __name__ == "__main__":
 
     model_type = args.model_type
     patch_size = args.patch_size
+    obj_size = args.obj_size
 
     auxiliary_loss = args.auxiliary_loss
     probe_layer = args.probe_layer
@@ -469,7 +470,7 @@ if __name__ == "__main__":
 
     model, transform, model_string = utils.load_model_for_training(
         model_type,
-        32,
+        patch_size,
         im_size,
         pretrained,
         int_to_label,
@@ -510,7 +511,7 @@ if __name__ == "__main__":
     data_dir = os.path.join(
         "stimuli",
         dataset_str,
-        f"aligned/N_{patch_size}/trainsize_{n_train}_{args.n_train_tokens}-{args.n_val_tokens}-{args.n_test_tokens}",
+        f"aligned/N_{obj_size}/trainsize_{n_train}_{args.n_train_tokens}-{args.n_val_tokens}-{args.n_test_tokens}",
     )
 
     if not os.path.exists(data_dir):
@@ -548,7 +549,7 @@ if __name__ == "__main__":
         ood_dirs = ["64-64-64", "64-64-64", "16-16-16"]
         
         for ood_label, ood_dir in zip(ood_labels, ood_dirs):
-            ood_dir = f"stimuli/NOISE_ood/{ood_label}/aligned/N_{patch_size}/trainsize_6400_{ood_dir}"
+            ood_dir = f"stimuli/NOISE_ood/{ood_label}/aligned/N_{obj_size}/trainsize_6400_{ood_dir}"
             ood_dataset = SameDifferentDataset(
                 ood_dir + "/val",
                 transform=transform,
@@ -588,6 +589,7 @@ if __name__ == "__main__":
     exp_config = {
         "model_type": model_type,
         "patch_size": patch_size,
+        "obj_size": obj_size,
         "pretrained": pretrained,
         "train_device": device,
         "dataset": dataset_str,

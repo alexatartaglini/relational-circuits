@@ -29,7 +29,10 @@ def model_train_parser(parser):
         default="",
     )
     parser.add_argument(
-        "--patch_size", type=int, default=32, help="Size of patch (eg. 16 or 32)."
+        "--patch_size", type=int, default=16, help="Size of model patch (eg. 16 or 32)."
+    )
+    parser.add_argument(
+        "--obj_size", type=int, default=32, help="Size of objects (eg. 32 or 64)."
     )
     parser.add_argument(
         "--auxiliary_loss",
@@ -189,7 +192,10 @@ def model_probe_parser(parser):
         required=True,
     )
     parser.add_argument(
-        "--patch_size", type=int, default=32, help="Size of patch (eg. 16 or 32)."
+        "--patch_size", type=int, default=16, help="Size of patch (eg. 16 or 32)."
+    )
+    parser.add_argument(
+        "--obj_size", type=int, default=32, help="Size of objects (eg. 32 or 64)."
     )
     parser.add_argument(
         "--model_path",
@@ -230,7 +236,10 @@ def model_probe_parser(parser):
 def data_generation_parser(parser):
     """Stores arguments for data.py parser"""
     parser.add_argument(
-        "--patch_size", type=int, default=32, help="Size of patch (eg. 16 or 32)."
+        "--patch_size", type=int, default=16, help="Size of patch (eg. 16 or 32)."
+    )
+    parser.add_argument(
+        "--obj_size", type=int, default=32, help="Size of objects (eg. 32 or 64)."
     )
     parser.add_argument(
         "--n_train",

@@ -24,26 +24,6 @@ label_to_int = {
     "different-shape-texture": 0,
     "different-color-texture": 0,
 }
-'''
-color_to_int = {
-    "mean192-192-64_var10": 0,
-    "mean192-64-64_var10": 1,
-    "mean0-128-256_var10": 2,
-    "mean64-64-192_var10": 3,
-    "mean64-192-64_var10": 4,
-    "mean128-0-256_var10": 5,
-    "mean256-128-256_var10": 6,
-    "mean128-256-128_var10": 7,
-    "mean192-64-192_var10": 8,
-    "mean256-128-0_var10": 9,
-    "mean128-256-256_var10": 10,
-    "mean64-192-192_var10": 11,
-    "mean256-128-128_var10": 12,
-    "mean128-128-256_var10": 13,
-    "mean256-256-128_var10": 14,
-    "mean64-64-64_var10": 15,
-}
-'''
 
 color_combos = [
     ["233-30-99", "136-14-79"], 
@@ -70,7 +50,34 @@ ood_colors = ["103-110-0", "255-155-238", "145-0-0", "194-188-255"]
 for c in range(len(ood_colors)):  # ood colors
     col = ood_colors[c]
     color_to_int[f"mean{col}_var10"] = c + len(color_combos)
+
+
+def corner_coord_to_list(coord, patch_size=16, obj_size=32):
+    """
+    Given a left corner coordinate, returns all neighboring (obj_size // patch_size)**2 
+    coordinates (which includes the corner).
+    """
+    coords = []
+    num_patches = obj_size // patch_size
     
+    for i in range(num_patches):
+        for j in range(num_patches):
+            coords.append(
+                ( coord[0] + patch_size*j, coord[1] + patch_size*i )
+            )
+            
+    return coords
+
+def coord_to_token(coords, all_patches):
+    """Given a list of coordinates, gives the corresponding ViT token idx for each"""
+    tokens = []
+    
+    for coord in coords:
+        tokens.append(
+            all_patches.index((coord[1], coord[0]))
+        )
+        
+    return tokens
 
 def load_dataset(root_dir, subset=None):
     """Helper function to load image datasets"""
@@ -411,7 +418,7 @@ def generate_different_matches(objects, n):
     return pairs_per_obj
 
 
-def generate_pairs(objects, n, possible_coords, match_to_sample=False):
+def generate_pairs(objects, n, possible_coords, patch_size=16, obj_size=32, match_to_sample=False):
     """Selects pairs of objects for each stimulus, as well as their coordinates
 
     :param objects: filenames of distinct objects
@@ -444,6 +451,14 @@ def generate_pairs(objects, n, possible_coords, match_to_sample=False):
         
         for i in range(len(all_different_pairs[pair]["coords"])):
             c = random.sample(possible_coords, k=2)
+            c0 = corner_coord_to_list(c[0], patch_size=patch_size, obj_size=obj_size)
+            c1 = corner_coord_to_list(c[1], patch_size=patch_size, obj_size=obj_size)
+            
+            while len(set(c0).intersection(set(c1))) > 0:  # objects overlap 
+                c1 = corner_coord_to_list(random.sample(possible_coords, k=1)[0], patch_size=patch_size, obj_size=obj_size)
+                
+            c = [c0, c1]
+            
             all_different_pairs[pair]["coords"][
                 i
             ] = c  # Overwrite the coords with real coordinates
@@ -645,6 +660,7 @@ def create_stimuli(
     stim_type,
     patch_dir,
     condition,
+    obj_size=32,
     buffer_factor=8,
     compositional=-1,
     texture=False, 
@@ -676,25 +692,35 @@ def create_stimuli(
 
     random.shuffle(objects)
 
-    obj_size = patch_size
-
-    # Place in ViT patch grid
-    coords = list(
+    # Get ViT patch grid
+    patches = list(
         np.linspace(
             0, im_size, num=(im_size // patch_size), endpoint=False, dtype=int
         )
     )
-
+    all_patches = list(itertools.product(patches, repeat=2))
+    
+    window = im_size - obj_size + patch_size
+    coords = list(
+        np.linspace(
+            0, window, num=(window // patch_size), endpoint=False, dtype=int
+        )
+    )
     possible_coords = list(itertools.product(coords, repeat=2))  # 2 Objects per image
     
     if match_to_sample:
-        display_coords = [(0, 0), (32, 0)]
-        non_display_coords = [coord for coord in possible_coords if coord not in display_coords]
+        display_coords = [
+            corner_coord_to_list((0, 0), patch_size=patch_size, obj_size=obj_size), 
+            corner_coord_to_list((obj_size, 0), patch_size=patch_size, obj_size=obj_size)
+        ]  
+        non_display_coords = [
+            coord for coord in possible_coords if coord not in display_coords[0] and coord not in display_coords[1]
+        ]
         
         (
             all_different_pairs,
             all_same_pairs,
-        ) = generate_pairs(objects, n, non_display_coords, match_to_sample=True)
+        ) = generate_pairs(objects, n, non_display_coords, patch_size=patch_size, obj_size=obj_size, match_to_sample=True)  # TODO: FIX
         
         items = zip(
             ["same", "different"],
@@ -709,7 +735,7 @@ def create_stimuli(
             all_different_shape_pairs,
             all_different_color_pairs,
             all_same_pairs,
-        ) = generate_pairs(objects, n, possible_coords)
+        ) = generate_pairs(objects, n, possible_coords, patch_size=patch_size, obj_size=obj_size)
         
         items = zip(
             ["same", "different", "different-shape", "different-color"],
@@ -726,7 +752,7 @@ def create_stimuli(
 
     # Open up each object file
     for o in objects:
-        im = Image.open(f"stimuli/source/{stim_type}/{patch_size}/{o}").convert("RGB")
+        im = Image.open(f"stimuli/source/{stim_type}/{obj_size}/{o}").convert("RGB")
         im = im.resize(
             (
                 obj_size - (obj_size // buffer_factor),
@@ -789,10 +815,10 @@ def create_stimuli(
 
                     datadict[f"{condition}/{sd_class}/{stim_idx}.png"] = {
                         "sd-label": label_to_int[sd_class],
-                        "pos1": possible_coords.index((p[0][1], p[0][0])),
+                        "pos1": coord_to_token(p[0], all_patches),  #possible_coords.index((p[0][1], p[0][0])),  # TODO: FIX
                         "c1": obj1_props[1],
                         "s1": obj1_props[0].split("-")[0],
-                        "pos2": possible_coords.index((p[1][1], p[1][0])),
+                        "pos2": coord_to_token(p[1], all_patches),  #possible_coords.index((p[1][1], p[1][0])),  # TODO: FIX
                         "c2": obj2_props[1],
                         "s2": obj2_props[0].split("-")[0],
                     }
@@ -823,8 +849,8 @@ def create_stimuli(
                         ]
                         
                         # Add display data to datadict
-                        datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["display1-pos"] = 0
-                        datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["display2-pos"] = 1
+                        datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["display1-pos"] = coord_to_token(display_coords[0], all_patches)  # TODO: FIX
+                        datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["display2-pos"] = coord_to_token(display_coords[1], all_patches)   # TODO: FIX
                         datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["display1-c"] = display1_props[1]
                         datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["display2-c"] = display2_props[1]
                         datadict[f"{condition}/{sd_class}/{stim_idx}.png"]["display1-s"] = display1_props[0].split("-")[0]
@@ -836,7 +862,7 @@ def create_stimuli(
                     for c in range(len(p)):
                         box = [
                             coord + random.randint(0, obj_size // buffer_factor)
-                            for coord in p[c]
+                            for coord in p[c][0]
                         ]
                         base.paste(object_ims[c], box=box)
 
@@ -849,7 +875,16 @@ def create_stimuli(
 
 
 def call_create_stimuli(
-    patch_size, n_train, n_val, n_test, patch_dir, im_size=224, compositional=-1, texture=False, match_to_sample=False,
+    patch_size, 
+    n_train, 
+    n_val, 
+    n_test, 
+    patch_dir, 
+    im_size=224, 
+    obj_size=32,
+    compositional=-1, 
+    texture=False, 
+    match_to_sample=False,
 ):
     """Creates train, val, and test datasets
 
@@ -892,7 +927,7 @@ def call_create_stimuli(
     else:
         stim_type = f"{patch_dir.split('/')[1]}"
         
-    stim_dir = f"{stim_type}/{patch_size}"
+    stim_dir = f"{stim_type}/{obj_size}"
 
     object_files = [
         f
@@ -911,7 +946,6 @@ def call_create_stimuli(
         # possible shapes to match with each color; this then ensures that all
         # unique shapes & colors are represented in the training/test data, but that
         # only some combinations of them are seen during training. 
-        # TODO: fix for disentangled color; more than 256 combos
         proportion_test = int(16*(256 - compositional) / 256)
         sliding_idx = [
             [(j + i) % 16 for j in range(proportion_test)] for i in range(16)
@@ -944,6 +978,7 @@ def call_create_stimuli(
             stim_type,
             patch_dir,
             "train",
+            obj_size=obj_size,
             compositional=compositional,
             texture=texture, 
             match_to_sample=match_to_sample,
@@ -956,6 +991,7 @@ def call_create_stimuli(
         stim_type,
         patch_dir,
         "val",
+        obj_size=obj_size,
         compositional=compositional,
         texture=texture, 
         match_to_sample=match_to_sample,
@@ -968,6 +1004,7 @@ def call_create_stimuli(
         stim_type,
         patch_dir,
         "test",
+        obj_size=obj_size,
         compositional=compositional,
         texture=texture, 
         match_to_sample=match_to_sample,
@@ -976,10 +1013,10 @@ def call_create_stimuli(
 
 def create_source(
     source,
-    patch_size=32,
+    obj_size=32,
 ):
     """Creates and saves NOISE objects. Objects are created by stamping out colors/textures
-    with shape outlines and saved in the directory labeled by patch_size.
+    with shape outlines and saved in the directory labeled by obj_size.
     """
     
     variances = [10]
@@ -1001,7 +1038,7 @@ def create_source(
         color_settings = [iid_colors]
 
     for colors, shape_masks, setting in zip(color_settings, shape_mask_settings, settings):
-        stim_dir = f"stimuli/source/{setting}/{patch_size}"
+        stim_dir = f"stimuli/source/{setting}/{obj_size}"
         os.makedirs(stim_dir, exist_ok=True)
         
         for color_file in colors:
@@ -1014,7 +1051,7 @@ def create_source(
                 mask = (
                     Image.open(shape_file)
                     .convert("RGBA")
-                    .resize((patch_size, patch_size), Image.NEAREST)
+                    .resize((obj_size, obj_size), Image.NEAREST)
                 )
     
                 # Remove mask background
@@ -1064,7 +1101,8 @@ def create_particular_stimulus(
     position_2,
     buffer_factor=8,
     im_size=224,
-    patch_size=32,
+    patch_size=16,
+    obj_size=32,
     split_channels=True,
 ):
     # Shape_1 is an integer
@@ -1082,20 +1120,20 @@ def create_particular_stimulus(
     path1 = f"{shape_1}_{color_1}.png"
     path2 = f"{shape_2}_{color_2}.png"
 
-    im1 = Image.open(f"stimuli/source/NOISE_RGB/{patch_size}/{path1}").convert("RGB")
+    im1 = Image.open(f"stimuli/source/NOISE_RGB/{obj_size}/{path1}").convert("RGB")
     im1 = im1.resize(
         (
-            patch_size - (patch_size // buffer_factor),
-            patch_size - (patch_size // buffer_factor),
+            obj_size - (obj_size // buffer_factor),
+            obj_size - (obj_size // buffer_factor),
         ),
         Image.NEAREST,
     )
 
-    im2 = Image.open(f"stimuli/source/NOISE_RGB/{patch_size}/{path2}").convert("RGB")
+    im2 = Image.open(f"stimuli/source/NOISE_RGB/{obj_size}/{path2}").convert("RGB")
     im2 = im2.resize(
         (
-            patch_size - (patch_size // buffer_factor),
-            patch_size - (patch_size // buffer_factor),
+            obj_size - (obj_size // buffer_factor),
+            obj_size - (obj_size // buffer_factor),
         ),
         Image.NEAREST,
     )
@@ -1108,12 +1146,12 @@ def create_particular_stimulus(
     base = Image.new("RGB", (im_size, im_size), (255, 255, 255))
 
     box1 = [
-        coord + random.randint(0, patch_size // buffer_factor) for coord in [x_1, y_1]
+        coord + random.randint(0, obj_size // buffer_factor) for coord in [x_1, y_1]
     ]
     base.paste(im1, box=box1)
 
     box2 = [
-        coord + random.randint(0, patch_size // buffer_factor) for coord in [x_2, y_2]
+        coord + random.randint(0, obj_size // buffer_factor) for coord in [x_2, y_2]
     ]
     base.paste(im2, box=box2)
 
@@ -1122,6 +1160,7 @@ def create_particular_stimulus(
 
 def create_subspace_datasets(
     patch_size=32,
+    obj_size=32,
     mode="val",
     analysis="color",
     split_channels=True,
@@ -1143,14 +1182,14 @@ def create_subspace_datasets(
         train_str = "trainsize_6400_256-256-256"
 
     subspace_imgs_path = os.path.join(
-        "stimuli", "subspace", train_str, f"{analysis}_{patch_size}"
+        "stimuli", "subspace", train_str, f"{analysis}_{obj_size}"
     )
     os.makedirs(
         subspace_imgs_path,
         exist_ok=True,
     )
 
-    all_ims = glob.glob(f"stimuli/source/NOISE_RGB/{patch_size}/*.png")
+    all_ims = glob.glob(f"stimuli/source/NOISE_RGB/{obj_size}/*.png")
     all_ims = [im.split("/")[-1][:-4].split("_") for im in all_ims]
     all_ims = [
         [im[0], f"{im[1]}_{im[2]}"] for im in all_ims
@@ -1159,7 +1198,7 @@ def create_subspace_datasets(
     colors = set([im[1] for im in all_ims])
     feature_dict = {"shape": sorted(list(shapes)), "color": sorted(list(colors))}
 
-    stim_dir = f"stimuli/NOISE_RGB/aligned/N_{patch_size}/{train_str}"
+    stim_dir = f"stimuli/NOISE_RGB/aligned/N_{obj_size}/{train_str}"
     base_imfiles = glob.glob(f"{stim_dir}/{mode}/different-{analysis}/*.png")
     stim_dict = pkl.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
 
@@ -1239,16 +1278,30 @@ def create_subspace_datasets(
                     f"{other_feat_str[0]}2": other_2,
                 }
 
-                position_1 = [position_1 % num_patch, position_1 // num_patch]
-                position_2 = [position_2 % num_patch, position_2 // num_patch]
+                position_1 = [position_1[0] % num_patch, position_1[0] // num_patch]
+                position_2 = [position_2[0] % num_patch, position_2[0] // num_patch]
 
                 if analysis == "color":
                     im = create_particular_stimulus(
-                        other_1, other_2, feat_1, feat_2, position_1, position_2
+                        other_1, 
+                        other_2, 
+                        feat_1, 
+                        feat_2, 
+                        position_1, 
+                        position_2, 
+                        patch_size=patch_size,
+                        obj_size=obj_size,
                     )
                 else:
                     im = create_particular_stimulus(
-                        feat_1, feat_2, other_1, other_2, position_1, position_2
+                        feat_1, 
+                        feat_2, 
+                        other_1, 
+                        other_2, 
+                        position_1, 
+                        position_2, 
+                        patch_size=patch_size,
+                        obj_size=obj_size,
                     )
 
                 im.save(f"{base_dir}/{dict_str}")
@@ -1260,6 +1313,7 @@ def create_subspace_datasets(
 
 def create_das_datasets(
     patch_size=32,
+    obj_size=32,
     mode="val",
     analysis="color",
     compositional=-1,
@@ -1281,14 +1335,14 @@ def create_das_datasets(
         train_str = "trainsize_6400_256-256-256"
 
     subspace_imgs_path = os.path.join(
-        "stimuli", "das", train_str, f"{analysis}_{patch_size}"
+        "stimuli", "das", train_str, f"{analysis}_{obj_size}"
     )
     os.makedirs(
         subspace_imgs_path,
         exist_ok=True,
     )
 
-    all_ims = glob.glob(f"stimuli/source/NOISE_RGB/{patch_size}/*.png")
+    all_ims = glob.glob(f"stimuli/source/NOISE_RGB/{obj_size}/*.png")
     all_ims = [im.split("/")[-1][:-4].split("_") for im in all_ims]
     all_ims = [
         [im[0], f"{im[1]}_{im[2]}"] for im in all_ims
@@ -1297,7 +1351,7 @@ def create_das_datasets(
     colors = set([im[1] for im in all_ims])
     feature_dict = {"shape": sorted(list(shapes)), "color": sorted(list(colors))}
 
-    stim_dir = f"stimuli/NOISE_RGB/aligned/N_{patch_size}/{train_str}"
+    stim_dir = f"stimuli/NOISE_RGB/aligned/N_{obj_size}/{train_str}"
     base_imfiles = glob.glob(f"{stim_dir}/{mode}/different-{analysis}/*.png")
     stim_dict = pkl.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
 
@@ -1372,10 +1426,10 @@ def create_das_datasets(
                 "cf_pos": cf_position,
             }
 
-            cf_position = [cf_position % num_patch, cf_position // num_patch]
+            cf_position = [cf_position[0] % num_patch, cf_position[0] // num_patch]
             non_cf_position = [
-                non_cf_position % num_patch,
-                non_cf_position // num_patch,
+                non_cf_position[0] % num_patch,
+                non_cf_position[0] // num_patch,
             ]
 
             if analysis == "color":
@@ -1386,6 +1440,8 @@ def create_das_datasets(
                     sampled_analyzed_feature_non_cf,
                     cf_position,
                     non_cf_position,
+                    patch_size=patch_size,
+                    obj_size=obj_size,
                 )
             else:
                 im = create_particular_stimulus(
@@ -1395,6 +1451,8 @@ def create_das_datasets(
                     sampled_other_feature_non_cf,
                     cf_position,
                     non_cf_position,
+                    patch_size=patch_size,
+                    obj_size=obj_size,
                 )
 
             im.save(f"{base_dir}/{dict_str}")
@@ -1421,7 +1479,7 @@ if __name__ == "__main__":
             compositional=args.compositional, mode="train", analysis="shape"
         )
     elif args.create_source:
-        create_source(source=args.source, patch_size=args.patch_size)
+        create_source(source=args.source, obj_size=args.obj_size)
     else:  # Create same-different dataset
         aligned_str = "aligned"
         
@@ -1450,7 +1508,7 @@ if __name__ == "__main__":
             args.n_val_tokens = 16
             args.n_test_tokens = 16
         
-        patch_dir = f"stimuli/{args.source}/{aligned_str}/N_{args.patch_size}/"
+        patch_dir = f"stimuli/{args.source}/{aligned_str}/N_{args.obj_size}/"
         patch_dir += f"trainsize_{args.n_train}_{args.n_train_tokens}-{args.n_val_tokens}-{args.n_test_tokens}"
 
         # Default behavior for n_val, n_test
@@ -1465,6 +1523,7 @@ if __name__ == "__main__":
             args.n_val,
             args.n_test,
             patch_dir,
+            obj_size=args.obj_size,
             compositional=args.compositional,
             texture=args.texture,
             match_to_sample=args.match_to_sample,
