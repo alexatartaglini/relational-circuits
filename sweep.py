@@ -72,7 +72,7 @@ parser.add_argument("--num_gpus", type=int, default=1, required=False)
 
 args = parser.parse_args()
 
-sweep_name = f"ViT-B/32 ({args.patch_size}x{args.patch_size} {args.dataset_str} Stimuli)"
+sweep_name = f"ViT-B/{args.patch_size} ({args.obj_size}x{args.obj_size} {args.dataset_str} Stimuli)"
 commands = ["${env}", "${interpreter}", "${program}"]
 
 if args.pretrained:
