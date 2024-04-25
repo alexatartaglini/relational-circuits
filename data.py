@@ -115,10 +115,8 @@ def load_dataset(root_dir, subset=None):
                     "image": pixels,
                     "image_path": im,
                     "label": l,
-                    "stream_1": data_dictionary[dict_key]["pos1"]
-                    + 1,  # +1 accounts for the CLS token
-                    "stream_2": data_dictionary[dict_key]["pos2"]
-                    + 1,  # +1 accounts for the CLS token
+                    "stream_1": [i + 1 for i in data_dictionary[dict_key]["pos1"]],  # +1 accounts for the CLS token
+                    "stream_2": [i + 1 for i in data_dictionary[dict_key]["pos2"]],
                     "shape_1": data_dictionary[dict_key]["s1"],
                     "shape_2": data_dictionary[dict_key]["s2"],
                     "color_1": color_to_int[data_dictionary[dict_key]["c1"]],
@@ -129,10 +127,8 @@ def load_dataset(root_dir, subset=None):
                     "image": pixels,
                     "image_path": im,
                     "label": l,
-                    "stream_1": data_dictionary[dict_key]["pos1"]
-                    + 1,  # +1 accounts for the CLS token
-                    "stream_2": data_dictionary[dict_key]["pos2"]
-                    + 1,  # +1 accounts for the CLS token
+                    "stream_1": [i + 1 for i in data_dictionary[dict_key]["pos1"]],  # +1 accounts for the CLS token
+                    "stream_2": [i + 1 for i in data_dictionary[dict_key]["pos2"]],
                     "shape_1": data_dictionary[dict_key]["s1"],
                     "shape_2": data_dictionary[dict_key]["s2"],
                     "color_1": color_to_int[data_dictionary[dict_key]["t1"]],
