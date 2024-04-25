@@ -79,6 +79,8 @@ if args.pretrained:
     commands += ["--pretrained"]
     if "clip" in args.model_type:
         sweep_name = f"CLIP {sweep_name}"
+    elif "dino" in args.model_type:
+        sweep_name = f"DINO {sweep_name}"
     else:
         sweep_name = f"ImageNet {sweep_name}"
 else:

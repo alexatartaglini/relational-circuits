@@ -110,9 +110,13 @@ def load_model_for_training(
     pretrain_path="",
 ):
     # Load models
-    if model_type == "vit":
-        model_string = "vit_b{0}".format(patch_size)
-        model_path = f"google/vit-base-patch{patch_size}-{im_size}-in21k"
+    if model_type == "vit" or model_type == "dino":
+        model_string = f"vit_b{patch_size}"
+        
+        if model_type == "dino":
+            model_path = f"facebook/dino-vitb{patch_size}"
+        else:
+            model_path = f"google/vit-base-patch{patch_size}-{im_size}-in21k"
 
         if len(pretrain_path) > 0:
             model, transform = load_model_from_path(pretrain_path, model_type, patch_size, im_size, train=True)
