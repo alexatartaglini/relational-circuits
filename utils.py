@@ -110,7 +110,7 @@ def load_model_for_training(
     pretrain_path="",
 ):
     # Load models
-    if model_type == "vit" or model_type == "dino":
+    if model_type == "vit" or model_type == "dino_vit":
         model_string = f"vit_b{patch_size}"
         
         if model_type == "dino_vit":
