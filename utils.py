@@ -111,11 +111,12 @@ def load_model_for_training(
 ):
     # Load models
     if model_type == "vit" or model_type == "dino_vit":
-        model_string = f"vit_b{patch_size}"
         
         if model_type == "dino_vit":
+            model_string = f"dino_vit_b{patch_size}"
             model_path = f"facebook/dino-vitb{patch_size}"
         else:
+            model_string = f"vit_b{patch_size}"
             model_path = f"google/vit-base-patch{patch_size}-{im_size}-in21k"
 
         if len(pretrain_path) > 0:
