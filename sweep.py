@@ -23,7 +23,10 @@ parser.add_argument(
     required=True,
 )
 parser.add_argument(
-    "--patch_size", type=int, default=32, help="Size of patch (eg. 16 or 32)."
+    "--patch_size", type=int, default=16, help="Size of patch (eg. 16 or 32)."
+)
+parser.add_argument(
+    "--obj_size", type=int, default=32, help="Size of objects (eg. 16 or 32)."
 )
 parser.add_argument(
     "--feature_extract",
@@ -110,6 +113,7 @@ sweep_configuration = {
         "n_val": {"values": [6400]},
         "n_test": {"values": [6400]},
         "patch_size": {"values": [args.patch_size]},
+        "obj_size": {"values": [args.obj_size]},
         "num_epochs": {"values": [200]},  # 200]},
         "wandb_proj": {"values": [args.wandb_proj]},
         "wandb_entity": {"values": [args.wandb_entity]},
