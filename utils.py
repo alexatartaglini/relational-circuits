@@ -113,7 +113,7 @@ def load_model_for_training(
     if model_type == "vit" or model_type == "dino":
         model_string = f"vit_b{patch_size}"
         
-        if model_type == "dino":
+        if model_type == "dino_vit":
             model_path = f"facebook/dino-vitb{patch_size}"
         else:
             model_path = f"google/vit-base-patch{patch_size}-{im_size}-in21k"
