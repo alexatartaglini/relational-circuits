@@ -454,7 +454,7 @@ if __name__ == "__main__":
     texture = args.texture
 
     # Check arguments
-    assert model_type == "vit" or model_type == "clip_vit"
+    assert model_type == "vit" or model_type == "clip_vit" or model_type == "dino_vit"
 
     # Create necessary directories
     try:
