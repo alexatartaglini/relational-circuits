@@ -338,7 +338,7 @@ def das_parser(parser):
     )
     parser.add_argument(
         "--run_id",
-        default="None",
+        default=None,
         required=False,
         help="Path to model to run DAS on.",
     )

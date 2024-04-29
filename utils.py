@@ -42,8 +42,11 @@ def get_config():
             return yaml.load(stream, Loader=yaml.FullLoader)
 
 
-def load_model_from_path(model_path, model_type, patch_size, im_size, train=False):
-
+def load_model_from_path(model_path, model_type, patch_size, im_size, train=False, device=None):
+    
+    if not device:
+        device = torch.device("cuda")
+    
     # Load models
     if "clip" in model_type:
         hf_path = f"openai/clip-vit-base-patch{patch_size}"
@@ -65,7 +68,7 @@ def load_model_from_path(model_path, model_type, patch_size, im_size, train=Fals
         model = ViTForImageClassification(configuration)
 
     # Load checkpoint
-    ckpt = torch.load(model_path)
+    ckpt = torch.load(model_path, map_location=device)
     model.load_state_dict(ckpt)
     
     if train:

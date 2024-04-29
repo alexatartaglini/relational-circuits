@@ -525,9 +525,10 @@ if __name__ == "__main__":
         model_path = f"./models/{pretrain}/{ds}_{obj_size}/{comp_str}_{run_id}.pth"
     else:
         model_path = glob.glob(f"./models/{pretrain}/{ds}_{obj_size}/{comp_str}_*.pth")[0]
+        run_id = model_path.split("/")[-1].split("_")[-1][:-4]
 
     model, image_processor = utils.load_model_from_path(
-        model_path, pretrain, patch_size=patch_size, im_size=224
+        model_path, pretrain, patch_size=patch_size, im_size=224, device=device
     )
     model.to(device)
     model.eval()
