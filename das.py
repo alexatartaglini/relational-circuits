@@ -141,12 +141,16 @@ def train_intervention(
 
     # Set temperature scheduler for boundary parameters
     total_step = 0
+    if device.type == "mps":
+        datatype = torch.float32
+    else:
+        datatype = torch.bfloat16
     # target_total_step = len(trainloader) * epochs
     temperature_start = 1.0
     temperature_end = 0.01
     temperature_schedule = (
         torch.linspace(temperature_start, temperature_end, epochs)
-        .to(torch.bfloat16)
+        .to(datatype)
         .to(device)
     )
     intervenable.set_temperature(temperature_schedule[0])
