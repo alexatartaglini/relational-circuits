@@ -42,11 +42,13 @@ class DasDataset(Dataset):
         self,
         root_dir,
         image_processor,
+        device,
     ):
         self.root_dir = root_dir
         self.im_dict = pkl.load(open(os.path.join(root_dir, "datadict.pkl"), "rb"))
         self.image_sets = glob.glob(root_dir + "set*")
         self.image_processor = image_processor
+        self.device = device
 
     def __len__(self):
         return len(self.image_sets)
@@ -62,14 +64,14 @@ class DasDataset(Dataset):
         base = self.image_processor.preprocess(
             np.array(Image.open(os.path.join(set_path, "base.png")), dtype=np.float32),
             return_tensors="pt",
-        )["pixel_values"][0].to("cuda")
+        )["pixel_values"][0].to(self.device)
         source = self.image_processor.preprocess(
             np.array(
                 Image.open(os.path.join(set_path, "counterfactual.png")),
                 dtype=np.float32,
             ),
             return_tensors="pt",
-        )["pixel_values"][0].to("cuda")
+        )["pixel_values"][0].to(self.device)
 
         item = {
             "base": base,
@@ -97,15 +99,19 @@ def simple_boundless_das_position_config(model_type, intervention_type, layer):
     return config
 
 
-def get_data(analysis, image_processor, comp_str):
+def get_data(analysis, image_processor, comp_str, device):
     train_data = DasDataset(
-        f"stimuli/das/trainsize_6400_{comp_str}/{analysis}_32/train/", image_processor
+        f"stimuli/das/trainsize_6400_{comp_str}/{analysis}_32/train/", 
+        image_processor,
+        device
     )
     train_data, _ = torch.utils.data.random_split(train_data, [1.0, 0.0])
     trainloader = DataLoader(train_data, batch_size=64, shuffle=True)
 
     test_data = DasDataset(
-        f"stimuli/das/trainsize_6400_{comp_str}/{analysis}_32/val/", image_processor
+        f"stimuli/das/trainsize_6400_{comp_str}/{analysis}_32/val/", 
+        image_processor,
+        device
     )
     test_data, val_data = torch.utils.data.random_split(test_data, [0.95, 0.05])
     testloader = DataLoader(test_data, batch_size=64, shuffle=False)
@@ -115,8 +121,11 @@ def get_data(analysis, image_processor, comp_str):
 
 
 def train_intervention(
-    intervenable, trainloader, valloader, epochs=20, lr=1e-3, abstraction_loss=False
+    intervenable, trainloader, valloader, epochs=20, lr=1e-3, abstraction_loss=False, device=None,
 ):
+    if device is None:
+        device = torch.device("cuda")
+    
     t_total = int(len(trainloader) * epochs)
     warm_up_steps = 0.1 * t_total
 
@@ -138,7 +147,7 @@ def train_intervention(
     temperature_schedule = (
         torch.linspace(temperature_start, temperature_end, epochs)
         .to(torch.bfloat16)
-        .to("cuda")
+        .to(device)
     )
     intervenable.set_temperature(temperature_schedule[0])
 
@@ -152,7 +161,7 @@ def train_intervention(
             trainloader, desc=f"Epoch: {epoch}", position=0, leave=True
         )
 
-        metrics = evaluation(intervenable, valloader, criterion)
+        metrics = evaluation(intervenable, valloader, criterion, device=device)
         epoch_iterator.set_postfix(
             {"loss": metrics["loss"], "acc": metrics["accuracy"]}
         )
@@ -160,7 +169,7 @@ def train_intervention(
         for step, inputs in enumerate(epoch_iterator):
             for k, v in inputs.items():
                 if v is not None and isinstance(v, torch.Tensor):
-                    inputs[k] = v.to("cuda")
+                    inputs[k] = v.to(device)
 
             if abstraction_loss:
                 for k, v in intervenable.interventions.items():
@@ -254,7 +263,10 @@ def train_intervention(
     return intervenable, metrics
 
 
-def evaluation(intervenable, testloader, criterion, save_embeds=False):
+def evaluation(intervenable, testloader, criterion, save_embeds=False, device=None):
+    if device is None:
+        device = torch.device("cuda")
+    
     # evaluation on the test set
     eval_preds = []
 
@@ -266,7 +278,7 @@ def evaluation(intervenable, testloader, criterion, save_embeds=False):
         for step, inputs in enumerate(epoch_iterator):
             for k, v in inputs.items():
                 if v is not None and isinstance(v, torch.Tensor):
-                    inputs[k] = v.to("cuda")
+                    inputs[k] = v.to(device)
             _, counterfactual_outputs = intervenable(
                 {"pixel_values": inputs["base"]},
                 [{"pixel_values": inputs["source"]}],
@@ -280,7 +292,7 @@ def evaluation(intervenable, testloader, criterion, save_embeds=False):
                 },
             )
             eval_preds += [counterfactual_outputs.logits]
-    eval_metrics = compute_metrics(eval_preds, criterion)
+    eval_metrics = compute_metrics(eval_preds, criterion, device=device)
     if save_embeds:
         for k, v in intervenable.interventions.items():
             embeds = v[0].saved_embeds
@@ -291,8 +303,10 @@ def evaluation(intervenable, testloader, criterion, save_embeds=False):
     return eval_metrics
 
 
-def abstraction_eval(model, intervention, testloader, criterion, layer, embeds):
-
+def abstraction_eval(model, intervention, testloader, criterion, layer, embeds, device=None):
+    if device is None:
+        device = torch.device("cuda")
+    
     embeds = torch.concat(embeds, dim=0)
     means = torch.mean(embeds, dim=0)
     stds = torch.std(embeds, dim=0)
@@ -310,7 +324,7 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds):
     )
 
     intervenable = IntervenableModel(parallel_config, model)
-    intervenable.set_device("cuda")
+    intervenable.set_device(device)
     intervenable.disable_model_gradients()
 
     # Ensure that both interventions have the same settings as the base intervention
@@ -332,7 +346,7 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds):
 
             for k, v in inputs.items():
                 if v is not None and isinstance(v, torch.Tensor):
-                    inputs[k] = v.to("cuda")
+                    inputs[k] = v.to(device)
 
             # For abstraction test, inject a random vector
             # into both the subspaces for fixed and edited objects
@@ -367,7 +381,7 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds):
                 },
             )
             sampled_eval_preds += [counterfactual_outputs.logits]
-    eval_sampled_metrics = compute_metrics(sampled_eval_preds, criterion)
+    eval_sampled_metrics = compute_metrics(sampled_eval_preds, criterion, device=device)
 
     # Eval with sampled random vectors with limited std
     sampled_half_std_eval_preds = []
@@ -382,7 +396,7 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds):
 
             for k, v in inputs.items():
                 if v is not None and isinstance(v, torch.Tensor):
-                    inputs[k] = v.to("cuda")
+                    inputs[k] = v.to(device)
 
             # For abstraction test, inject a random vector
             # into both the subspaces for fixed and edited objects
@@ -416,7 +430,7 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds):
                 },
             )
             sampled_half_std_eval_preds += [counterfactual_outputs.logits]
-    eval_half_sampled_metrics = compute_metrics(sampled_half_std_eval_preds, criterion)
+    eval_half_sampled_metrics = compute_metrics(sampled_half_std_eval_preds, criterion, device=device)
 
     # evaluation by interpolating two source vectors
     interpolated_eval_preds = []
@@ -433,7 +447,7 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds):
 
             for k, v in inputs.items():
                 if v is not None and isinstance(v, torch.Tensor):
-                    inputs[k] = v.to("cuda")
+                    inputs[k] = v.to(device)
 
             # For abstraction test, inject a random vector
             # into both the subspaces for fixed and edited objects
@@ -467,13 +481,16 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds):
                 },
             )
             interpolated_eval_preds += [counterfactual_outputs.logits]
-    interpolated_metrics = compute_metrics(interpolated_eval_preds, criterion)
+    interpolated_metrics = compute_metrics(interpolated_eval_preds, criterion, device=device)
 
     return eval_sampled_metrics, eval_half_sampled_metrics, interpolated_metrics
 
 
 # You can define your custom compute_metrics function.
-def compute_metrics(eval_preds, criterion):
+def compute_metrics(eval_preds, criterion, device=None):
+    if device is None:
+        device = torch.device("cuda")
+    
     total_count = 0
     correct_count = 0
     total_loss = 0
@@ -483,7 +500,7 @@ def compute_metrics(eval_preds, criterion):
         total_count += len(correct_labels)
         correct_count += correct_labels.sum().tolist()
         total_loss += criterion(
-            eval_pred, torch.tensor([1] * len(eval_pred)).to("cuda")
+            eval_pred, torch.tensor([1] * len(eval_pred)).to(device)
         ) * len(eval_pred)
     accuracy = round(correct_count / total_count, 3)
     loss = round(total_loss.item() / total_count, 3)
@@ -551,7 +568,7 @@ if __name__ == "__main__":
         "interpolated_acc": [],
     }
 
-    trainloader, valloader, testloader = get_data(analysis, image_processor, comp_str)
+    trainloader, valloader, testloader = get_data(analysis, image_processor, comp_str, device)
 
     for layer in range(min_layer, max_layer):
         print(f"Layer: {layer}")
@@ -570,13 +587,14 @@ if __name__ == "__main__":
             abstraction_loss=abstraction_loss,
             epochs=args.num_epochs,
             lr=args.lr,
+            device=device,
         )
 
         # Effectively snap to binary
         intervenable.set_temperature(0.00001)
-        train_metrics = evaluation(intervenable, trainloader, criterion)
+        train_metrics = evaluation(intervenable, trainloader, criterion, device=device)
         test_metrics, embeds = evaluation(
-            intervenable, testloader, criterion, save_embeds=True
+            intervenable, testloader, criterion, save_embeds=True, device=device
         )
 
         results["layer"].append(layer)
