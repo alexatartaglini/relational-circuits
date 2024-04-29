@@ -917,7 +917,10 @@ def call_create_stimuli(
 
     # Collect object image paths
     if "ood" in patch_dir:
-        stim_type = f"{patch_dir.split('/')[1]}/{patch_dir.split('/')[2]}"
+        if "mts" in patch_dir:
+            stim_type = f"NOISE_ood/{patch_dir.split('/')[2]}"
+        else:
+            stim_type = f"{patch_dir.split('/')[1]}/{patch_dir.split('/')[2]}"
     elif "mts" in patch_dir:
         stim_type = "NOISE_RGB"
     else:
@@ -1487,19 +1490,22 @@ if __name__ == "__main__":
             if args.texture:
                 args.source = "NOISE_st"
                 
-        if args.match_to_sample:
+        if args.match_to_sample and "mts" not in args.source:
             args.source = "mts"
+            
+        if "mts" in args.source:
+            args.match_to_sample = True
 
         if args.compositional > 0:
             args.n_train_tokens = args.compositional
             args.n_val_tokens = args.compositional
             args.n_test_tokens = 256 - args.compositional
             
-        if args.source == "NOISE_ood/ood-color" or args.source == "NOISE_ood/ood-shape":
+        if "ood-color" in args.source or "ood-shape" in args.source:
             args.n_train_tokens = 64
             args.n_val_tokens = 64
             args.n_test_tokens = 64
-        elif args.source == "NOISE_ood/ood-shape-color":
+        elif "ood-shape-color" in args.source:
             args.n_train_tokens = 16
             args.n_val_tokens = 16
             args.n_test_tokens = 16
