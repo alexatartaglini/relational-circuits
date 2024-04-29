@@ -522,9 +522,9 @@ if __name__ == "__main__":
         comp_str = f"{compositional}-{compositional}-{256-compositional}"
     
     if run_id:
-        model_path = f"./models/{pretrain}/{comp_str}_{run_id}.pth"
+        model_path = f"./models/{pretrain}/{ds}_{obj_size}/{comp_str}_{run_id}.pth"
     else:
-        model_path = glob.glob(f"./models/{pretrain}/{comp_str}_*.pth")[0]
+        model_path = glob.glob(f"./models/{pretrain}/{ds}_{obj_size}/{comp_str}_*.pth")[0]
 
     model, image_processor = utils.load_model_from_path(
         model_path, pretrain, patch_size=patch_size, im_size=224
