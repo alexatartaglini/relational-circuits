@@ -48,8 +48,7 @@ def load_model_from_path(model_path, model_type, patch_size, im_size, train=Fals
     if "clip" in model_type:
         hf_path = f"openai/clip-vit-base-patch{patch_size}"
         transform = AutoProcessor.from_pretrained(hf_path)
-        configuration = CLIPConfig(patch_size=patch_size, im_size=im_size)
-        model = CLIPVisionModelWithProjection(configuration)
+        model = CLIPVisionModelWithProjection.from_pretrained(hf_path)
 
         # Replace projection with correct dimensions
         in_features = model.visual_projection.in_features
