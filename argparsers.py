@@ -327,3 +327,68 @@ def data_generation_parser(parser):
     )
 
     return parser.parse_args()
+
+
+def das_parser(parser):
+    parser.add_argument(
+        "--pretrain",
+        help="Model to to perform intervention on: scratch, imagenet, clip, dino.",
+        type=str,
+        required=True,
+    )
+    parser.add_argument(
+        "--run_id",
+        default="None",
+        required=False,
+        help="Path to model to run DAS on.",
+    )
+    parser.add_argument(
+        "--patch_size", type=int, default=16, help="Size of patch (eg. 16 or 32)."
+    )
+    parser.add_argument(
+        "--obj_size", type=int, default=32, help="Size of objects (eg. 32 or 64)."
+    )
+    parser.add_argument(
+        "-ds",
+        "--dataset_str",
+        required=False,
+        help="Names of the directory containing stimuli",
+        default="NOISE_RGB",
+    )
+    parser.add_argument(
+        "--analysis",
+        type=str,
+        default="shape",
+        help="Analysis to run (shape or texture).",
+    )
+    parser.add_argument(
+        "--compositional",
+        type=int,
+        default=-1,
+        help="Load model and use stimuli from a given compositional dataset.",
+    )
+    parser.add_argument(
+        "--min_layer",
+        type=int,
+        default=0,
+        help="Minimum layer to perform intervention.",
+    )
+    parser.add_argument(
+        "--max_layer",
+        type=int,
+        default=11,
+        help="Maximum layer to perform intervention.",
+    )
+    parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate.")
+    parser.add_argument(
+        "--num_epochs", type=int, default=20, help="Number of training epochs for intervention."
+    )
+    parser.add_argument(
+        "--abstraction_loss",
+        action="store_true",
+        default=False,
+        help="Use abstraction loss.",
+    )
+
+    args = parser.parse_args()
+    return args

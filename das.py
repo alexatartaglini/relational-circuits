@@ -13,24 +13,26 @@ import pandas as pd
 
 from pyvene import (
     IntervenableModel,
-    BoundlessRotatedSpaceIntervention,
+    #BoundlessRotatedSpaceIntervention,
     SigmoidMaskRotatedSpaceIntervention,
     RepresentationConfig,
     IntervenableConfig,
 )
 from pyvene import count_parameters
 
-import random
+#import random
 import os
+import argparse
 import pickle as pkl
 import numpy as np
 from PIL import Image
-import torch
-from functools import partial
+#import torch
+#from functools import partial
 import glob
-import pickle as pkl
-from collections import defaultdict
+#from collections import defaultdict
 import utils
+
+from argparsers import das_parser
 
 
 class DasDataset(Dataset):
@@ -43,7 +45,6 @@ class DasDataset(Dataset):
     ):
         self.root_dir = root_dir
         self.im_dict = pkl.load(open(os.path.join(root_dir, "datadict.pkl"), "rb"))
-        print(self.im_dict)
         self.image_sets = glob.glob(root_dir + "set*")
         self.image_processor = image_processor
 
@@ -96,15 +97,15 @@ def simple_boundless_das_position_config(model_type, intervention_type, layer):
     return config
 
 
-def get_data(analysis, image_processor):
+def get_data(analysis, image_processor, comp_str):
     train_data = DasDataset(
-        f"stimuli/das/trainsize_6400_32-32-224/{analysis}_32/train/", image_processor
+        f"stimuli/das/trainsize_6400_{comp_str}/{analysis}_32/train/", image_processor
     )
     train_data, _ = torch.utils.data.random_split(train_data, [1.0, 0.0])
     trainloader = DataLoader(train_data, batch_size=64, shuffle=True)
 
     test_data = DasDataset(
-        f"stimuli/das/trainsize_6400_32-32-224/{analysis}_32/val/", image_processor
+        f"stimuli/das/trainsize_6400_{comp_str}/{analysis}_32/val/", image_processor
     )
     test_data, val_data = torch.utils.data.random_split(test_data, [0.95, 0.05])
     testloader = DataLoader(test_data, batch_size=64, shuffle=False)
@@ -261,7 +262,7 @@ def evaluation(intervenable, testloader, criterion, save_embeds=False):
         for k, v in intervenable.interventions.items():
             v[0].set_save_embeds(True)
     with torch.no_grad():
-        epoch_iterator = tqdm(testloader, desc=f"Test")
+        epoch_iterator = tqdm(testloader, desc="Test")
         for step, inputs in enumerate(epoch_iterator):
             for k, v in inputs.items():
                 if v is not None and isinstance(v, torch.Tensor):
@@ -322,7 +323,7 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds):
     sampled_eval_preds = []
 
     with torch.no_grad():
-        epoch_iterator = tqdm(testloader, desc=f"Abstraction")
+        epoch_iterator = tqdm(testloader, desc="Abstraction")
         for step, inputs in enumerate(epoch_iterator):
             # Sample a vector from the distribution of rotated sources
             abstract_vector = torch.normal(means, stds)
@@ -372,7 +373,7 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds):
     sampled_half_std_eval_preds = []
 
     with torch.no_grad():
-        epoch_iterator = tqdm(testloader, desc=f"Abstraction")
+        epoch_iterator = tqdm(testloader, desc="Abstraction")
         for step, inputs in enumerate(epoch_iterator):
             # Sample a vector from the distribution of rotated sources
             abstract_vector = torch.normal(means, stds / 2)
@@ -421,7 +422,7 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds):
     interpolated_eval_preds = []
 
     with torch.no_grad():
-        epoch_iterator = tqdm(testloader, desc=f"Abstraction")
+        epoch_iterator = tqdm(testloader, desc="Abstraction")
         for step, inputs in enumerate(epoch_iterator):
             # interpolate 2 rotated sources
             choices = np.random.choice(range(len(embeds)), size=2)
@@ -490,26 +491,50 @@ def compute_metrics(eval_preds, criterion):
 
 
 if __name__ == "__main__":
+    # Set device
+    try:
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+        elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
+            device = torch.device("mps")
+        else:
+            device = torch.device("cpu")
+    except AttributeError:  # if MPS is not available
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    analysis = "shape"
-    abstraction_loss = False
-    # model_path = "./models/scratch/256-256-256_uizlvnej.pth"
-    # model_path = "./models/imagenet/256-256-256_jqwl3zcy.pth"
-    model_path = "./models/imagenet/32-32-224_ao9dxetb.pth"
-    # model_path = "./models/scratch/32-32-224_sva7zued.pth"
+    parser = argparse.ArgumentParser()
+    args = das_parser(parser)
+    
+    ds = args.dataset_str
+    analysis = args.analysis
+    abstraction_loss = args.abstraction_loss
+    compositional = args.compositional
+    pretrain = args.pretrain
+    run_id = args.run_id
+    patch_size = args.patch_size
+    obj_size = args.obj_size
+    min_layer = args.min_layer
+    max_layer = args.max_layer
+    
+    if compositional < 0:
+        comp_str = "256-256-256"
+    else:
+        comp_str = f"{compositional}-{compositional}-{256-compositional}"
+    
+    if run_id:
+        model_path = f"./models/{pretrain}/{comp_str}_{run_id}.pth"
+    else:
+        model_path = glob.glob(f"./models/{pretrain}/{comp_str}_*.pth")[0]
+
     model, image_processor = utils.load_model_from_path(
-        model_path, "vit", patch_size=32, im_size=224
+        model_path, pretrain, patch_size=patch_size, im_size=224
     )
-    model.to("cuda")
+    model.to(device)
     model.eval()
 
     abstraction_loss_str = "_abstraction_loss" if abstraction_loss else ""
-    model_path_str = "imagenet" if "imagenet" in model_path else "scratch"
-    log_path = f"logs/{model_path_str}_32/NOISE_RGB/aligned/N_32/trainsize_6400_32-32-224/DAS{abstraction_loss_str}/{analysis}"
+    log_path = f"logs/{pretrain}/{ds}/aligned/N_{obj_size}/trainsize_6400_{comp_str}/DAS{abstraction_loss_str}/{analysis}"
     os.makedirs(log_path, exist_ok=True)
-
-    min_layer = 0
-    max_layer = 4
 
     results = {
         "layer": [],
@@ -525,7 +550,7 @@ if __name__ == "__main__":
         "interpolated_acc": [],
     }
 
-    trainloader, valloader, testloader = get_data(analysis, image_processor)
+    trainloader, valloader, testloader = get_data(analysis, image_processor, comp_str)
 
     for layer in range(min_layer, max_layer):
         print(f"Layer: {layer}")
@@ -533,12 +558,17 @@ if __name__ == "__main__":
             type(model), "block_output", layer
         )
         intervenable = IntervenableModel(config, model)
-        intervenable.set_device("cuda")
+        intervenable.set_device(device)
         intervenable.disable_model_gradients()
         criterion = CrossEntropyLoss()
 
         intervenable, metrics = train_intervention(
-            intervenable, trainloader, valloader, abstraction_loss=abstraction_loss
+            intervenable, 
+            trainloader, 
+            valloader, 
+            abstraction_loss=abstraction_loss,
+            epochs=args.num_epochs,
+            lr=args.lr,
         )
 
         # Effectively snap to binary

@@ -45,15 +45,7 @@ def get_config():
 def load_model_from_path(model_path, model_type, patch_size, im_size, train=False):
 
     # Load models
-    if model_type == "vit":
-        hf_path = f"google/vit-base-patch{patch_size}-{im_size}-in21k"
-        transform = ViTImageProcessor(do_resize=False).from_pretrained(hf_path)
-        configuration = ViTConfig(
-            patch_size=patch_size, image_size=im_size, num_labels=2
-        )
-        model = ViTForImageClassification(configuration)
-
-    elif "clip" in model_type:
+    if "clip" in model_type:
         hf_path = f"openai/clip-vit-base-patch{patch_size}"
         transform = AutoProcessor.from_pretrained(hf_path)
         configuration = CLIPConfig(patch_size=patch_size, im_size=im_size)
@@ -64,6 +56,14 @@ def load_model_from_path(model_path, model_type, patch_size, im_size, train=Fals
         # @mlepori edit, CLIPVisionModelWithProjection doesn't have a config option for the visual projection to have a bias
         # so we shouldn't have one either
         model.visual_projection = nn.Linear(in_features, 2, bias=False)
+        
+    else:
+        hf_path = f"google/vit-base-patch{patch_size}-{im_size}-in21k"
+        transform = ViTImageProcessor(do_resize=False).from_pretrained(hf_path)
+        configuration = ViTConfig(
+            patch_size=patch_size, image_size=im_size, num_labels=2
+        )
+        model = ViTForImageClassification(configuration)
 
     # Load checkpoint
     ckpt = torch.load(model_path)
