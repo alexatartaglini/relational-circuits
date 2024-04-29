@@ -1,6 +1,7 @@
 from .constants import *
 from .llama.modelings_intervenable_llama import *
 from .vit.modelings_intervenable_vit import *
+from .clip.modelings_intervenable_clip import *
 from .mistral.modellings_intervenable_mistral import *
 from .gpt2.modelings_intervenable_gpt2 import *
 from .gpt_neo.modelings_intervenable_gpt_neo import *
@@ -59,6 +60,7 @@ type_to_module_mapping = {
     # new model type goes here after defining the model files
     hf_models.vit.modeling_vit.ViTModel: vit_type_to_module_mapping,
     hf_models.vit.modeling_vit.ViTForImageClassification: vit_im_clf_type_to_module_mapping,
+    hf_models.clip.modeling_clip.CLIPVisionModelWithProjection: clip_im_clf_type_to_module_mapping,
 }
 
 
@@ -87,5 +89,6 @@ type_to_dimension_mapping = {
     # new model type goes here after defining the model files
     hf_models.vit.modeling_vit.ViTModel: vit_type_to_dimension_mapping,
     hf_models.vit.modeling_vit.ViTForImageClassification: vit_im_clf_type_to_dimension_mapping,
+    hf_models.clip.modeling_clip.CLIPVisionModelWithProjection: clip_im_clf_type_to_dimension_mapping,
 }
 #########################################################################
