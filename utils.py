@@ -110,6 +110,7 @@ def load_model_for_training(
     int_to_label,
     label_to_int,
     pretrain_path="",
+    train_clf_head_only=False,
 ):
     # Load models
     if model_type == "vit" or model_type == "dino_vit":
@@ -161,6 +162,11 @@ def load_model_for_training(
             model.visual_projection = nn.Linear(in_features, 2, bias=False)
     
             transform = AutoProcessor.from_pretrained(model_path)
+
+    if train_clf_head_only:
+        for name, param in model.named_parameters():
+            if "classifier" not in name or "visual_projection" not in name:
+                param.requires_grad = False
 
     return model, transform, model_string
 

@@ -22,6 +22,12 @@ def model_train_parser(parser):
         required=True,
     )
     parser.add_argument(
+        "--train_clf_head_only",
+        action="store_true",
+        default=False,
+        help="Train only the classification head of the model, freezing other layers.",
+    )
+    parser.add_argument(
         "--pretrain_path",
         help="Path of model weights to load before fine-tuning.",
         type=str,
