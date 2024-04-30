@@ -477,6 +477,7 @@ if __name__ == "__main__":
         int_to_label,
         label_to_int,
         pretrain_path=args.pretrain_path,
+        train_clf_head_only=args.train_clf_head_only,
     )
     model = model.to(device)  # Move model to GPU if possible
 
