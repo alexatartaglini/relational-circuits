@@ -832,8 +832,8 @@ def create_stimuli(
                         create_noise_image(display1, object_ims[2], texture=texture)
                         create_noise_image(display2, object_ims[3], texture=texture)
                         
-                        display1_props = obj1[:-4].split("_")  # List of shape, color
-                        display2_props = obj2[:-4].split("_")  # List of shape, color
+                        display1_props = display1[:-4].split("_")  # List of shape, color
+                        display2_props = display2[:-4].split("_")  # List of shape, color
                         
                         display1_props = [
                             display1_props[0],
@@ -1311,7 +1311,8 @@ def create_subspace_datasets(
 
 
 def create_das_datasets(
-    patch_size=32,
+    source="NOISE_RGB",
+    patch_size=16,
     obj_size=32,
     mode="val",
     analysis="color",
@@ -1350,7 +1351,7 @@ def create_das_datasets(
     colors = set([im[1] for im in all_ims])
     feature_dict = {"shape": sorted(list(shapes)), "color": sorted(list(colors))}
 
-    stim_dir = f"stimuli/NOISE_RGB/aligned/N_{obj_size}/{train_str}"
+    stim_dir = f"stimuli/{source}/aligned/N_{obj_size}/{train_str}"
     base_imfiles = glob.glob(f"{stim_dir}/{mode}/different-{analysis}/*.png")
     stim_dict = pkl.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
 
