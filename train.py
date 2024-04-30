@@ -575,12 +575,12 @@ if __name__ == "__main__":
     model_params = tuple([param for param in model.parameters() if param.requires_grad])
     if args.auxiliary_loss:
         params = (
-            list(model.parameters())
+            list(model_params)
             + list(probes[0].parameters())
             + list(probes[1].parameters())
         )
     else:
-        params = model.parameters()
+        params = model_params
 
     # Optimizer and scheduler
     if optim == "adamw":
