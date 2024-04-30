@@ -70,6 +70,9 @@ def corner_coord_to_list(coord, patch_size=16, obj_size=32):
 
 def coord_to_token(coords, all_patches):
     """Given a list of coordinates, gives the corresponding ViT token idx for each"""
+    if type(coords) is tuple:  # Only one coordinate
+        return all_patches.index((coords[1], coords[0]))
+    
     tokens = []
     
     for coord in coords:
@@ -1102,7 +1105,6 @@ def create_particular_stimulus(
     im_size=224,
     patch_size=16,
     obj_size=32,
-    split_channels=True,
 ):
     # Shape_1 is an integer
     # Texture_1 is a mean_var pair
@@ -1138,8 +1140,8 @@ def create_particular_stimulus(
     )
 
     # Sample noise
-    create_noise_image(path1, im1, split_channels=split_channels)
-    create_noise_image(path2, im2, split_channels=split_channels)
+    create_noise_image(path1, im1)
+    create_noise_image(path2, im2)
 
     # Create blank image and paste objects
     base = Image.new("RGB", (im_size, im_size), (255, 255, 255))
@@ -1410,10 +1412,35 @@ def create_das_datasets(
             )
 
             # Sample a new position for the counterfactual and non-counterfactual shape
-            choices = list(range(49))
-            positions = np.random.choice(choices, 2, replace=False)
-            cf_position = positions[0]
-            non_cf_position = positions[1]
+            # Get ViT patch grid taking object size into account
+            patches = list(
+                np.linspace(
+                    0, 224, num=(224 // patch_size), endpoint=False, dtype=int
+                )
+            )
+            all_patches = list(itertools.product(patches, repeat=2))
+            
+            window = 224 - obj_size + patch_size  # Area of valid coords given object size
+            coords = list(
+                np.linspace(
+                    0, window, num=(window // patch_size), endpoint=False, dtype=int
+                )
+            )
+            possible_coords = list(itertools.product(coords, repeat=2))
+            
+            c = random.sample(possible_coords, k=2)
+            c0 = corner_coord_to_list(c[0], patch_size=patch_size, obj_size=obj_size)
+            c1 = corner_coord_to_list(c[1], patch_size=patch_size, obj_size=obj_size)
+            
+            # Ensure that objects do not overlap
+            while len(set(c0).intersection(set(c1))) > 0:
+                c1 = corner_coord_to_list(random.sample(possible_coords, k=1)[0], patch_size=patch_size, obj_size=obj_size)
+            
+            positions = [c0, c1]
+
+            # Convert image coordinates to token indices 
+            cf_position = coord_to_token(positions[0], all_patches)
+            non_cf_position = coord_to_token(positions[1], all_patches)
 
             # Get position of the base token to inject information into
             edited_pos = diff_stim[f"pos{edited_idx}"]
@@ -1425,13 +1452,15 @@ def create_das_datasets(
                 "non_edited_pos": non_edited_pos,
                 "cf_pos": cf_position,
             }
-
+            
+            # Get correct coordinates for create_particular_stimulus
             cf_position = [cf_position[0] % num_patch, cf_position[0] // num_patch]
             non_cf_position = [
                 non_cf_position[0] % num_patch,
                 non_cf_position[0] // num_patch,
             ]
 
+            # Create the stimuli
             if analysis == "color":
                 im = create_particular_stimulus(
                     sampled_other_feature_cf,
@@ -1470,14 +1499,9 @@ if __name__ == "__main__":
         create_subspace_datasets(compositional=args.compositional, analysis="color")
         create_subspace_datasets(compositional=args.compositional, analysis="shape")
     elif args.create_das:
-        create_das_datasets(compositional=args.compositional, analysis="color")
-        create_das_datasets(compositional=args.compositional, analysis="shape")
-        create_das_datasets(
-            compositional=args.compositional, mode="train", analysis="color"
-        )
-        create_das_datasets(
-            compositional=args.compositional, mode="train", analysis="shape"
-        )
+        for mode in ["train", "val", "test"]:
+            create_das_datasets(compositional=args.compositional, analysis="color", mode=mode)
+            create_das_datasets(compositional=args.compositional, analysis="shape", mode=mode)
     elif args.create_source:
         create_source(source=args.source, obj_size=args.obj_size)
     else:  # Create same-different dataset
