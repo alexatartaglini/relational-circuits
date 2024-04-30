@@ -572,6 +572,7 @@ if __name__ == "__main__":
             ood_datasets.append(ood_dataset)
             ood_dataloaders.append(ood_dataloader)
 
+    model_params = tuple([param for param in model.parameters() if param.requires_grad])
     if args.auxiliary_loss:
         params = (
             list(model.parameters())
