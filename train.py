@@ -246,6 +246,7 @@ def train_model(
     optimizer,
     scheduler,
     log_dir,
+    comp_str,
     val_dataset,
     val_dataloader,
     test_dataset,
@@ -384,7 +385,7 @@ def train_model(
         
         if early_stopping and early_stopper(metric_dict["val_loss"]):
             torch.save(
-                model.state_dict(), f"{log_dir}/model_{epoch}_{lr}_{wandb.run.id}.pth"
+                model.state_dict(), f"{log_dir}/{comp_str}_{wandb.run.id}.pth"
             )
             return model
 
@@ -497,10 +498,7 @@ if __name__ == "__main__":
     model_string += pretrained_string  # Indicate if model is pretrained
     model_string += "_{0}".format(optim)  # Optimizer string
 
-    path = os.path.join(model_string, dataset_str)
-
-    log_dir = os.path.join("logs", path)
-    os.makedirs(log_dir, exist_ok=True)
+    #path = os.path.join(model_string, dataset_str)
 
     # Construct train set + DataLoader
     if compositional > 0:
@@ -508,11 +506,25 @@ if __name__ == "__main__":
         args.n_val_tokens = compositional
         args.n_test_tokens = 256 - compositional
 
+    comp_str = f"{args.n_train_tokens}-{args.n_val_tokens}-{args.n_test_tokens}"
     data_dir = os.path.join(
         "stimuli",
         dataset_str,
-        f"aligned/N_{obj_size}/trainsize_{n_train}_{args.n_train_tokens}-{args.n_val_tokens}-{args.n_test_tokens}",
+        f"aligned/N_{obj_size}/trainsize_{n_train}_{comp_str}",
     )
+    
+    if model_type == "vit":
+        if pretrained:
+            pretrain_type = "imagenet"
+        else:
+            pretrain_type = "scratch"
+    elif model_type == "clip_vit":
+        pretrain_type = "clip"
+    elif model_type == "dino_vit":
+        pretrain_type = "dino"
+    
+    log_dir = f"models/{pretrain_type}/{dataset_str}_{obj_size}"
+    os.makedirs(log_dir, exist_ok=True)
 
     if not os.path.exists(data_dir):
         raise ValueError("Train Data Directory does not exist")
@@ -632,6 +644,7 @@ if __name__ == "__main__":
         optimizer,
         scheduler,
         log_dir,
+        comp_str,
         val_dataset,
         val_dataloader,
         test_dataset,
