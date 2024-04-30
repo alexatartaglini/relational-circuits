@@ -165,8 +165,9 @@ def load_model_for_training(
 
     if train_clf_head_only:
         for name, param in model.named_parameters():
-            if "classifier" not in name or "visual_projection" not in name:
-                param.requires_grad = False
+            param.requires_grad = False
+            if "classifier" in name or "visual_projection" in name:
+                param.requires_grad = True
 
     return model, transform, model_string
 
