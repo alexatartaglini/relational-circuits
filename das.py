@@ -340,7 +340,7 @@ def evaluation(
     return eval_metrics
 
 
-def run_abstraction(model, testloader, abstract_vector_function, criterion):
+def run_abstraction(model, testloader, abstract_vector_function, criterion, clip=False):
 
     eval_preds = []
     all_labels = []
@@ -413,7 +413,11 @@ def run_abstraction(model, testloader, abstract_vector_function, criterion):
                     ),
                 },
             )
-            eval_preds += [counterfactual_outputs.logits]
+            if clip:
+                eval_preds += [counterfactual_outputs.image_embeds]
+            else:
+                eval_preds += [counterfactual_outputs.logits]
+
     return compute_metrics(eval_preds, all_labels, criterion, device=device)
 
 
@@ -462,7 +466,7 @@ def abstraction_eval(
     # Eval with sampled IID random vectors
     abstract_vector_function = partial(torch.normal, mean=means, std=stds)
     eval_sampled_metrics = run_abstraction(
-        intervenable, testloader, abstract_vector_function, criterion
+        intervenable, testloader, abstract_vector_function, criterion, clip=clip
     )
 
     # Eval with more random gaussian vectors
@@ -470,7 +474,7 @@ def abstraction_eval(
         torch.normal, mean=torch.zeros(means.shape), std=torch.ones(stds.shape)
     )
     fully_random_metrics = run_abstraction(
-        intervenable, testloader, abstract_vector_function, criterion
+        intervenable, testloader, abstract_vector_function, criterion, clip=clip
     )
 
     # Eval with interpolated vectors
@@ -480,7 +484,7 @@ def abstraction_eval(
 
     abstract_vector_function = interpolate
     interpolated_metrics = run_abstraction(
-        intervenable, testloader, abstract_vector_function, criterion
+        intervenable, testloader, abstract_vector_function, criterion, clip=clip
     )
 
     return eval_sampled_metrics, fully_random_metrics, interpolated_metrics
@@ -643,9 +647,6 @@ if __name__ == "__main__":
 
         results["interpolated_acc"].append(interpolated_metrics["accuracy"])
         results["interpolated_loss"].append(interpolated_metrics["loss"])
-
-        os.makedirs(os.path.join(log_path, f"layer_{layer}"), exist_ok=True)
-        intervenable.save(os.path.join(log_path, f"layer_{layer}"))
 
         pd.DataFrame.from_dict(results).to_csv(
             os.path.join(log_path, f"{control_str}results.csv")

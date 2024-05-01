@@ -1,0 +1,33 @@
+{
+  "intervention_constant_sources": [
+    false
+  ],
+  "intervention_dimensions": [
+    3072
+  ],
+  "intervention_types": [
+    "<class 'pyvene.models.interventions.SigmoidMaskRotatedSpaceIntervention'>"
+  ],
+  "mode": "parallel",
+  "representations": [
+    [
+      3,
+      "block_output",
+      "pos",
+      4,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  ],
+  "sorted_keys": [
+    "layer.3.comp.block_output.unit.pos.nunit.4#0"
+  ],
+  "transformers_version": "4.37.1"
+}

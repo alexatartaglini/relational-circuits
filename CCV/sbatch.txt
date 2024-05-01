@@ -1,4 +1,25 @@
-dino_shape
+XXpython das.py --task discrimination --analysis color --pretrain imagenet --run_id mjfmy0s2 --min_layer 0 --max_layer 5 --num_epochs 5 --control
+
+XXpython das.py --task discrimination --analysis color --pretrain imagenet --run_id mjfmy0s2 --min_layer 0 --max_layer 5 --num_epochs 5 
+
+XXpython das.py --task discrimination --analysis shape --pretrain imagenet --run_id mjfmy0s2 --min_layer 0 --max_layer 5 --num_epochs 5 --control
+
+XXpython das.py --task discrimination --analysis shape --pretrain imagenet --run_id mjfmy0s2 --min_layer 0 --max_layer 5 --num_epochs 5 
 
 
-sbatch -J dino_shape -o CCV/out/dino_shape.out -e CCV/err/dino_shape.err /users/mlepori/data/mlepori/projects/relational-circuits/CCV/run.script
+XXpython das.py --task discrimination --analysis color --pretrain clip --run_id n1wy4pyq --min_layer 0 --max_layer 5 --num_epochs 5 --control
+
+XXpython das.py --task discrimination --analysis color --pretrain clip --run_id n1wy4pyq --min_layer 0 --max_layer 5 --num_epochs 5 
+
+XXpython das.py --task discrimination --analysis shape --pretrain clip --run_id n1wy4pyq --min_layer 0 --max_layer 5 --num_epochs 5 --control
+
+XXpython das.py --task discrimination --analysis shape --pretrain clip --run_id n1wy4pyq --min_layer 0 --max_layer 5 --num_epochs 5 
+
+
+XXpython das.py --task discrimination --analysis color --pretrain scratch --run_id fmr73rre --min_layer 0 --max_layer 5 --num_epochs 5 --control
+
+XXpython das.py --task discrimination --analysis color --pretrain scratch --run_id fmr73rre --min_layer 0 --max_layer 5 --num_epochs 5 
+
+python das.py --task discrimination --analysis shape --pretrain scratch --run_id fmr73rre --min_layer 0 --max_layer 5 --num_epochs 5 --control
+
+python das.py --task discrimination --analysis shape --pretrain scratch --run_id fmr73rre --min_layer 0 --max_layer 5 --num_epochs 5 
