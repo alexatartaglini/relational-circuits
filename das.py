@@ -4,7 +4,7 @@ sys.path.append("./pyvene")
 
 import torch
 from tqdm import tqdm, trange
-from datasets import Dataset
+from torch.utils.data import Dataset
 from torch.utils.data import DataLoader
 from transformers import get_linear_schedule_with_warmup
 from torch.nn import CrossEntropyLoss
@@ -47,6 +47,7 @@ class DasDataset(Dataset):
         self.root_dir = root_dir
         self.im_dict = pkl.load(open(os.path.join(root_dir, "datadict.pkl"), "rb"))
         self.image_sets = glob.glob(root_dir + "set*")
+        #self.image_sets = {i: image_sets[i] for i in range(len(image_sets))}
         self.image_processor = image_processor
         self.device = device
 
@@ -56,9 +57,13 @@ class DasDataset(Dataset):
     def __getitem__(self, idx):
         set_path = self.image_sets[idx]
         set_key = set_path.split("/")[-1]
-        stream = self.im_dict[set_key]["edited_pos"] + 1
-        cf_stream = self.im_dict[set_key]["cf_pos"] + 1
-        fixed_object_stream = self.im_dict[set_key]["non_edited_pos"] + 1
+        #stream = [t + 1 for t in self.im_dict[set_key]["edited_pos"]]
+        #cf_stream = [t + 1 for t in self.im_dict[set_key]["cf_pos"]]
+        #fixed_object_stream = [t + 1 for t in self.im_dict[set_key]["non_edited_pos"]]
+
+        stream = np.array(self.im_dict[set_key]["edited_pos"]) + 1
+        cf_stream = np.array(self.im_dict[set_key]["cf_pos"]) + 1
+        fixed_object_stream = np.array(self.im_dict[set_key]["non_edited_pos"]) + 1
 
         label = 1
         base = self.image_processor.preprocess(
@@ -121,7 +126,13 @@ def get_data(analysis, image_processor, comp_str, device):
 
 
 def train_intervention(
-    intervenable, trainloader, valloader, epochs=20, lr=1e-3, abstraction_loss=False, device=None,
+    intervenable, 
+    trainloader, 
+    valloader, 
+    epochs=20, 
+    lr=1e-3, 
+    abstraction_loss=False, 
+    device=None,
 ):
     if device is None:
         device = torch.device("cuda")
@@ -180,7 +191,7 @@ def train_intervention(
                     v[0].set_abstraction_test(False)
                     v[0].clear_saved_embeds()
                     v[0].set_save_embeds(True)
-
+                    
             # Standard counterfactual loss
             _, counterfactual_outputs = intervenable(
                 {"pixel_values": inputs["base"]},
@@ -189,8 +200,8 @@ def train_intervention(
                 # [num_intervention, batch, num_unit]
                 {
                     "sources->base": (
-                        inputs["cf_stream"].reshape(1, -1, 1),
-                        inputs["stream"].reshape(1, -1, 1),
+                        inputs["cf_stream"].reshape(4, -1, 1),
+                        inputs["stream"].reshape(4, -1, 1),
                     ),
                 },
             )
@@ -223,15 +234,15 @@ def train_intervention(
                 # Patch into both objects
                 sources_indices = torch.concat(
                     [
-                        inputs["stream"].reshape(1, -1, 1),
-                        inputs["stream"].reshape(1, -1, 1),
+                        inputs["stream"].reshape(4, -1, 1),
+                        inputs["stream"].reshape(4, -1, 1),
                     ],
                     dim=2,
                 )
                 base_indices = torch.concat(
                     [
-                        inputs["stream"].reshape(1, -1, 1),
-                        inputs["fixed_object_stream"].reshape(1, -1, 1),
+                        inputs["stream"].reshape(4, -1, 1),
+                        inputs["fixed_object_stream"].reshape(4, -1, 1),
                     ],
                     dim=2,
                 )
@@ -283,6 +294,9 @@ def evaluation(intervenable, testloader, criterion, save_embeds=False, device=No
             for k, v in inputs.items():
                 if v is not None and isinstance(v, torch.Tensor):
                     inputs[k] = v.to(device)
+
+            # CHANGED
+            
             _, counterfactual_outputs = intervenable(
                 {"pixel_values": inputs["base"]},
                 [{"pixel_values": inputs["source"]}],
@@ -290,8 +304,8 @@ def evaluation(intervenable, testloader, criterion, save_embeds=False, device=No
                 # [num_intervention, batch, num_unit]
                 {
                     "sources->base": (
-                        inputs["cf_stream"].reshape(1, -1, 1),
-                        inputs["stream"].reshape(1, -1, 1),
+                        inputs["cf_stream"].reshape(4, -1, 1),
+                        inputs["stream"].reshape(4, -1, 1),
                     ),
                 },
             )
@@ -357,15 +371,15 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds, 
             # Source indices don't matter
             sources_indices = torch.concat(
                 [
-                    inputs["stream"].reshape(1, -1, 1),
-                    inputs["stream"].reshape(1, -1, 1),
+                    inputs["stream"].reshape(4, -1, 1),
+                    inputs["stream"].reshape(4, -1, 1),
                 ],
                 dim=0,
             )
             base_indices = torch.concat(
                 [
-                    inputs["stream"].reshape(1, -1, 1),
-                    inputs["fixed_object_stream"].reshape(1, -1, 1),
+                    inputs["stream"].reshape(4, -1, 1),
+                    inputs["fixed_object_stream"].reshape(4, -1, 1),
                 ],
                 dim=0,
             )
@@ -406,15 +420,15 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds, 
             # into both the subspaces for fixed and edited objects
             sources_indices = torch.concat(
                 [
-                    inputs["stream"].reshape(1, -1, 1),
-                    inputs["stream"].reshape(1, -1, 1),
+                    inputs["stream"].reshape(4, -1, 1),
+                    inputs["stream"].reshape(4, -1, 1),
                 ],
                 dim=0,
             )
             base_indices = torch.concat(
                 [
-                    inputs["stream"].reshape(1, -1, 1),
-                    inputs["fixed_object_stream"].reshape(1, -1, 1),
+                    inputs["stream"].reshape(4, -1, 1),
+                    inputs["fixed_object_stream"].reshape(4, -1, 1),
                 ],
                 dim=0,
             )
@@ -457,15 +471,15 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds, 
             # into both the subspaces for fixed and edited objects
             sources_indices = torch.concat(
                 [
-                    inputs["stream"].reshape(1, -1, 1),
-                    inputs["stream"].reshape(1, -1, 1),
+                    inputs["stream"].reshape(4, -1, 1),
+                    inputs["stream"].reshape(4, -1, 1),
                 ],
                 dim=0,
             )
             base_indices = torch.concat(
                 [
-                    inputs["stream"].reshape(1, -1, 1),
-                    inputs["fixed_object_stream"].reshape(1, -1, 1),
+                    inputs["stream"].reshape(4, -1, 1),
+                    inputs["fixed_object_stream"].reshape(4, -1, 1),
                 ],
                 dim=0,
             )
@@ -516,8 +530,8 @@ if __name__ == "__main__":
     try:
         if torch.cuda.is_available():
             device = torch.device("cuda")
-        elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
-            device = torch.device("mps")
+        #elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
+            #device = torch.device("mps")
         else:
             device = torch.device("cpu")
     except AttributeError:  # if MPS is not available
@@ -622,3 +636,4 @@ if __name__ == "__main__":
         results["interpolated_loss"].append(interpolated_metrics["loss"])
 
         pd.DataFrame.from_dict(results).to_csv(os.path.join(log_path, "results.csv"))
+        intervenable.save(log_path)
