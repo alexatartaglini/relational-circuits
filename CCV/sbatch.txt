@@ -1,0 +1,4 @@
+dino_shape
+
+
+sbatch -J dino_shape -o CCV/out/dino_shape.out -e CCV/err/dino_shape.err /users/mlepori/data/mlepori/projects/relational-circuits/CCV/run.script

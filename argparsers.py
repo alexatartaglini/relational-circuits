@@ -87,10 +87,10 @@ def model_train_parser(parser):
 
     # Dataset arguments
     parser.add_argument(
-        "--k", 
-        type=int, 
-        default=5, 
-        help="Number of objects per scene for counting task."
+        "--k",
+        type=int,
+        default=5,
+        help="Number of objects per scene for counting task.",
     )
     parser.add_argument(
         "--n_images_per_task",
@@ -98,7 +98,7 @@ def model_train_parser(parser):
         default=100,
         help="Number of images per counting task (per class).",
     )
-    
+
     parser.add_argument(
         "--compositional",
         type=int,
@@ -317,14 +317,14 @@ def data_generation_parser(parser):
         default=False,
         help="Create das analysis images",
     )
-        
+
     parser.add_argument(
         "--texture",
         action="store_true",
         default=False,
         help="Create dataset with textures.",
     )
-    
+
     parser.add_argument(
         "--match_to_sample",
         action="store_true",
@@ -339,6 +339,12 @@ def das_parser(parser):
     parser.add_argument(
         "--pretrain",
         help="Model to to perform intervention on: scratch, imagenet, clip, dino.",
+        type=str,
+        required=True,
+    )
+    parser.add_argument(
+        "--task",
+        help="discrimination or MTS.",
         type=str,
         required=True,
     )
@@ -365,7 +371,7 @@ def das_parser(parser):
         "--analysis",
         type=str,
         default="shape",
-        help="Analysis to run (shape or texture).",
+        help="Analysis to run (shape or color).",
     )
     parser.add_argument(
         "--compositional",
@@ -387,7 +393,10 @@ def das_parser(parser):
     )
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate.")
     parser.add_argument(
-        "--num_epochs", type=int, default=20, help="Number of training epochs for intervention."
+        "--num_epochs",
+        type=int,
+        default=20,
+        help="Number of training epochs for intervention.",
     )
     parser.add_argument(
         "--abstraction_loss",
@@ -395,6 +404,11 @@ def das_parser(parser):
         default=False,
         help="Use abstraction loss.",
     )
-
+    parser.add_argument(
+        "--control",
+        action="store_true",
+        default=False,
+        help="Take random source tokens as controls.",
+    )
     args = parser.parse_args()
     return args

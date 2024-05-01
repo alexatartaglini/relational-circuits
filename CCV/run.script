@@ -1,11 +1,11 @@
 #!/bin/bash
 
 #SBATCH -N 1-1 -n 1 
-#SBATCH -p gpu --gres=gpu:1
+#SBATCH -p 3090-gcondo --gres=gpu:1
 #SBATCH --mem=60gb
-#SBATCH -t 1:00:00
+#SBATCH -t 10:00:00
 
 source /gpfs/data/epavlick/mlepori/miniconda3/etc/profile.d/conda.sh
 
 conda activate relational-circuits
-python $PROJECT_DIR/causal_tracing.py --config $CONFIG
+python /users/mlepori/data/mlepori/projects/relational-circuits/das.py --

@@ -1320,7 +1320,6 @@ def create_das_datasets(
     analysis="color",
     compositional=-1,
     samples=2500,
-    variations=1,  # How many variations of the counterfactual to make
 ):
     num_patch = 224 // patch_size
 
@@ -1339,6 +1338,8 @@ def create_das_datasets(
     subspace_imgs_path = os.path.join(
         "stimuli", "das", train_str, f"{analysis}_{obj_size}"
     )
+
+    datadict = {}
     os.makedirs(
         subspace_imgs_path,
         exist_ok=True,
@@ -1353,6 +1354,8 @@ def create_das_datasets(
     colors = set([im[1] for im in all_ims])
     feature_dict = {"shape": sorted(list(shapes)), "color": sorted(list(colors))}
 
+
+    # Create different-to-same pairs
     stim_dir = f"stimuli/{source}/aligned/N_{obj_size}/{train_str}"
     base_imfiles = glob.glob(f"{stim_dir}/{mode}/different-{analysis}/*.png")
     stim_dict = pkl.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
@@ -1360,134 +1363,255 @@ def create_das_datasets(
     random.shuffle(base_imfiles)
     base_imfiles = base_imfiles[:samples]
 
-    datadict = {}
+    for base in base_imfiles:
+        im = Image.open(base)
+        base_path = os.path.join(*base.split("/")[-3:])
+        base_idx = base.split("/")[-1][:-4]
+
+        base_dir = os.path.join(
+            subspace_imgs_path, mode, f"diff_set_{base_idx}"
+        )
+        os.makedirs(base_dir, exist_ok=True)
+
+        diff_stim = stim_dict[base_path]
+
+        shutil.copy(base, f"{base_dir}/base.png")
+
+        # arbitrarily change the first object to match the second
+        edited_idx = 1
+        non_edited_idx = 2
+        # Create a new stimuli with an object that is different in the other feature dimension, but same in
+        # the analyzed feature dimension (i.e if looking for shape subspace, fix shape property and sample color)
+
+        # Terminology:
+        # counterfactual object = object from which to inject analyzed feature
+        # non-counterfactual object = other object in counterfactual image
+        # analyzed feature = feature to inject
+        # other feature = non-analyzed feature
+
+        # Force the counterfactual object to have a specific 'analyzed' feature
+        analyzed_feature = diff_stim[f"{analysis[0]}2"]
+
+        # Force the non-counterfactual object to have another, different 'analyzed' feature
+        sampled_analyzed_feature_non_cf = np.random.choice(
+            list(set(feature_dict[analysis]) - set([analyzed_feature]))
+        )
+
+        # Force the counterfactual object to have a different 'other' feature than it did in the original image
+        base_other_feature = diff_stim[f"{other_feat_str[0]}2"]
+        sampled_other_feature_cf = np.random.choice(
+            list(set(feature_dict[other_feat_str]) - set([base_other_feature]))
+        )
+
+        # Force the non-counterfactual object to have yet another 'other' feature
+        sampled_other_feature_non_cf = np.random.choice(
+            list(
+                set(feature_dict[other_feat_str])
+                - set([base_other_feature, sampled_other_feature_cf])
+            )
+        )
+
+        # Sample a new position for the counterfactual and non-counterfactual shape
+        # Get ViT patch grid taking object size into account
+        patches = list(
+            np.linspace(
+                0, 224, num=(224 // patch_size), endpoint=False, dtype=int
+            )
+        )
+        all_patches = list(itertools.product(patches, repeat=2))
+        
+        window = 224 - obj_size + patch_size  # Area of valid coords given object size
+        coords = list(
+            np.linspace(
+                0, window, num=(window // patch_size), endpoint=False, dtype=int
+            )
+        )
+        possible_coords = list(itertools.product(coords, repeat=2))
+        
+        c = random.sample(possible_coords, k=2)
+        c0 = corner_coord_to_list(c[0], patch_size=patch_size, obj_size=obj_size)
+        c1 = corner_coord_to_list(c[1], patch_size=patch_size, obj_size=obj_size)
+        
+        # Ensure that objects do not overlap
+        while len(set(c0).intersection(set(c1))) > 0:
+            c1 = corner_coord_to_list(random.sample(possible_coords, k=1)[0], patch_size=patch_size, obj_size=obj_size)
+        
+        positions = [c0, c1]
+
+        # Convert image coordinates to token indices 
+        cf_position = coord_to_token(positions[0], all_patches)
+        non_cf_position = coord_to_token(positions[1], all_patches)
+
+        # Get position of the base token to inject information into
+        edited_pos = diff_stim[f"pos{edited_idx}"]
+        non_edited_pos = diff_stim[f"pos{non_edited_idx}"]
+
+        dict_str = "counterfactual.png"
+        datadict[f"diff_set_{base_idx}"] = {
+            "edited_pos": edited_pos,
+            "non_edited_pos": non_edited_pos,
+            "cf_pos": cf_position,
+            "label": 1
+        }
+        
+        # Get correct coordinates for create_particular_stimulus
+        cf_position = [cf_position[0] % num_patch, cf_position[0] // num_patch]
+        non_cf_position = [
+            non_cf_position[0] % num_patch,
+            non_cf_position[0] // num_patch,
+        ]
+
+        # Create the stimuli
+        if analysis == "color":
+            im = create_particular_stimulus(
+                sampled_other_feature_cf,
+                sampled_other_feature_non_cf,
+                analyzed_feature,
+                sampled_analyzed_feature_non_cf,
+                cf_position,
+                non_cf_position,
+                patch_size=patch_size,
+                obj_size=obj_size,
+            )
+        else:
+            im = create_particular_stimulus(
+                analyzed_feature,
+                sampled_analyzed_feature_non_cf,
+                sampled_other_feature_cf,
+                sampled_other_feature_non_cf,
+                cf_position,
+                non_cf_position,
+                patch_size=patch_size,
+                obj_size=obj_size,
+            )
+
+        im.save(f"{base_dir}/{dict_str}")
+
+    # Create same-to-different pairs
+    base_imfiles = glob.glob(f"{stim_dir}/{mode}/same/*.png")
+    stim_dict = pkl.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
+
+    random.shuffle(base_imfiles)
+    base_imfiles = base_imfiles[:samples]
 
     for base in base_imfiles:
         im = Image.open(base)
         base_path = os.path.join(*base.split("/")[-3:])
         base_idx = base.split("/")[-1][:-4]
 
-        for variation in range(variations):
-            base_dir = os.path.join(
-                subspace_imgs_path, mode, f"set_{base_idx}_{variation}"
+        base_dir = os.path.join(
+            subspace_imgs_path, mode, f"same_set_{base_idx}"
+        )
+        os.makedirs(base_dir, exist_ok=True)
+
+        diff_stim = stim_dict[base_path]
+
+        shutil.copy(base, f"{base_dir}/base.png")
+
+        # arbitrarily change the first object to differ from the second
+        edited_idx = 1
+        non_edited_idx = 2
+        # Create a new stimuli with an object that is different in the analyzed feature dimension, but same in
+        # the other feature dimension (i.e if looking for shape subspace, sample shape property and fix color)
+
+        # Terminology:
+        # counterfactual object = object from which to inject analyzed feature
+        # non-counterfactual object = other object in counterfactual image
+        # analyzed feature = feature to inject
+        # other feature = non-analyzed feature
+
+        # Force the counterfactual object to have a random different 'analyzed' feature
+        # Analyzed feature in normal image
+        analyzed_feature = diff_stim[f"{analysis[0]}2"]
+
+        sampled_analyzed_feature = np.random.choice(
+            list(set(feature_dict[analysis]) - set([analyzed_feature]))
+        )
+
+        # Force the counterfactual objects to have a different 'other' feature than they did in the original image
+        base_other_feature = diff_stim[f"{other_feat_str[0]}2"]
+        sampled_other_feature = np.random.choice(
+            list(set(feature_dict[other_feat_str]) - set([base_other_feature]))
+        )
+
+        # Sample a new position for the counterfactual and non-counterfactual shape
+        # Get ViT patch grid taking object size into account
+        patches = list(
+            np.linspace(
+                0, 224, num=(224 // patch_size), endpoint=False, dtype=int
             )
-            os.makedirs(base_dir, exist_ok=True)
+        )
+        all_patches = list(itertools.product(patches, repeat=2))
+        
+        window = 224 - obj_size + patch_size  # Area of valid coords given object size
+        coords = list(
+            np.linspace(
+                0, window, num=(window // patch_size), endpoint=False, dtype=int
+            )
+        )
+        possible_coords = list(itertools.product(coords, repeat=2))
+        
+        c = random.sample(possible_coords, k=2)
+        c0 = corner_coord_to_list(c[0], patch_size=patch_size, obj_size=obj_size)
+        c1 = corner_coord_to_list(c[1], patch_size=patch_size, obj_size=obj_size)
+        
+        # Ensure that objects do not overlap
+        while len(set(c0).intersection(set(c1))) > 0:
+            c1 = corner_coord_to_list(random.sample(possible_coords, k=1)[0], patch_size=patch_size, obj_size=obj_size)
+        
+        positions = [c0, c1]
 
-            diff_stim = stim_dict[base_path]
+        # Convert image coordinates to token indices 
+        cf_position = coord_to_token(positions[0], all_patches)
+        non_cf_position = coord_to_token(positions[1], all_patches)
 
-            shutil.copy(base, f"{base_dir}/base.png")
+        # Get position of the base token to inject information into
+        edited_pos = diff_stim[f"pos{edited_idx}"]
+        non_edited_pos = diff_stim[f"pos{non_edited_idx}"]
 
-            # arbitrarily change the first object to match the second
-            edited_idx = 1
-            non_edited_idx = 2
-            # Create a new stimuli with an object that is different in the other feature dimension, but same in
-            # the analyzed feature dimension (i.e if looking for shape subspace, fix shape property and sample color)
+        dict_str = "counterfactual.png"
+        datadict[f"same_set_{base_idx}"] = {
+            "edited_pos": edited_pos,
+            "non_edited_pos": non_edited_pos,
+            "cf_pos": cf_position,
+            "label": 0
+        }
+        
+        # Get correct coordinates for create_particular_stimulus
+        cf_position = [cf_position[0] % num_patch, cf_position[0] // num_patch]
+        non_cf_position = [
+            non_cf_position[0] % num_patch,
+            non_cf_position[0] // num_patch,
+        ]
 
-            # Terminology:
-            # counterfactual object = object from which to inject analyzed feature
-            # non-counterfactual object = other object in counterfactual image
-            # analyzed feature = feature to inject
-            # other feature = non-analyzed feature
-
-            # Force the counterfactual object to have a specific 'analyzed' feature
-            analyzed_feature = diff_stim[f"{analysis[0]}2"]
-
-            # Force the non-counterfactual object to have another, different 'analyzed' feature
-            sampled_analyzed_feature_non_cf = np.random.choice(
-                list(set(feature_dict[analysis]) - set([analyzed_feature]))
+        # Create the stimuli, force counterfactual objects to match
+        if analysis == "color":
+            im = create_particular_stimulus(
+                sampled_other_feature,
+                sampled_other_feature,
+                sampled_analyzed_feature,
+                sampled_analyzed_feature,
+                cf_position,
+                non_cf_position,
+                patch_size=patch_size,
+                obj_size=obj_size,
+            )
+        else:
+            im = create_particular_stimulus(
+                sampled_analyzed_feature,
+                sampled_analyzed_feature,
+                sampled_other_feature,
+                sampled_other_feature,
+                cf_position,
+                non_cf_position,
+                patch_size=patch_size,
+                obj_size=obj_size,
             )
 
-            # Force the counterfactual object to have a different 'other' feature than it did in the original image
-            base_other_feature = diff_stim[f"{other_feat_str[0]}2"]
-            sampled_other_feature_cf = np.random.choice(
-                list(set(feature_dict[other_feat_str]) - set([base_other_feature]))
-            )
+        im.save(f"{base_dir}/{dict_str}")
 
-            # Force the non-counterfactual object to have yet another 'other' feature
-            sampled_other_feature_non_cf = np.random.choice(
-                list(
-                    set(feature_dict[other_feat_str])
-                    - set([base_other_feature, sampled_other_feature_cf])
-                )
-            )
-
-            # Sample a new position for the counterfactual and non-counterfactual shape
-            # Get ViT patch grid taking object size into account
-            patches = list(
-                np.linspace(
-                    0, 224, num=(224 // patch_size), endpoint=False, dtype=int
-                )
-            )
-            all_patches = list(itertools.product(patches, repeat=2))
-            
-            window = 224 - obj_size + patch_size  # Area of valid coords given object size
-            coords = list(
-                np.linspace(
-                    0, window, num=(window // patch_size), endpoint=False, dtype=int
-                )
-            )
-            possible_coords = list(itertools.product(coords, repeat=2))
-            
-            c = random.sample(possible_coords, k=2)
-            c0 = corner_coord_to_list(c[0], patch_size=patch_size, obj_size=obj_size)
-            c1 = corner_coord_to_list(c[1], patch_size=patch_size, obj_size=obj_size)
-            
-            # Ensure that objects do not overlap
-            while len(set(c0).intersection(set(c1))) > 0:
-                c1 = corner_coord_to_list(random.sample(possible_coords, k=1)[0], patch_size=patch_size, obj_size=obj_size)
-            
-            positions = [c0, c1]
-
-            # Convert image coordinates to token indices 
-            cf_position = coord_to_token(positions[0], all_patches)
-            non_cf_position = coord_to_token(positions[1], all_patches)
-
-            # Get position of the base token to inject information into
-            edited_pos = diff_stim[f"pos{edited_idx}"]
-            non_edited_pos = diff_stim[f"pos{non_edited_idx}"]
-
-            dict_str = "counterfactual.png"
-            datadict[f"set_{base_idx}_{variation}"] = {
-                "edited_pos": edited_pos,
-                "non_edited_pos": non_edited_pos,
-                "cf_pos": cf_position,
-            }
-            
-            # Get correct coordinates for create_particular_stimulus
-            cf_position = [cf_position[0] % num_patch, cf_position[0] // num_patch]
-            non_cf_position = [
-                non_cf_position[0] % num_patch,
-                non_cf_position[0] // num_patch,
-            ]
-
-            # Create the stimuli
-            if analysis == "color":
-                im = create_particular_stimulus(
-                    sampled_other_feature_cf,
-                    sampled_other_feature_non_cf,
-                    analyzed_feature,
-                    sampled_analyzed_feature_non_cf,
-                    cf_position,
-                    non_cf_position,
-                    patch_size=patch_size,
-                    obj_size=obj_size,
-                )
-            else:
-                im = create_particular_stimulus(
-                    analyzed_feature,
-                    sampled_analyzed_feature_non_cf,
-                    sampled_other_feature_cf,
-                    sampled_other_feature_non_cf,
-                    cf_position,
-                    non_cf_position,
-                    patch_size=patch_size,
-                    obj_size=obj_size,
-                )
-
-            im.save(f"{base_dir}/{dict_str}")
-
-        with open(f"{subspace_imgs_path}/{mode}/datadict.pkl", "wb") as handle:
-            pkl.dump(datadict, handle, protocol=pkl.HIGHEST_PROTOCOL)
+    with open(f"{subspace_imgs_path}/{mode}/datadict.pkl", "wb") as handle:
+        pkl.dump(datadict, handle, protocol=pkl.HIGHEST_PROTOCOL)
 
 
 if __name__ == "__main__":
@@ -1500,8 +1624,8 @@ if __name__ == "__main__":
         create_subspace_datasets(compositional=args.compositional, analysis="shape")
     elif args.create_das:
         for mode in ["train", "val", "test"]:
-            create_das_datasets(compositional=args.compositional, analysis="color", mode=mode)
-            create_das_datasets(compositional=args.compositional, analysis="shape", mode=mode)
+            create_das_datasets(compositional=args.compositional, analysis="color", mode=mode, samples=500)
+            create_das_datasets(compositional=args.compositional, analysis="shape", mode=mode, samples=500)
     elif args.create_source:
         create_source(source=args.source, obj_size=args.obj_size)
     else:  # Create same-different dataset
