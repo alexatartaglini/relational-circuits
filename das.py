@@ -208,8 +208,8 @@ def train_intervention(
                 # [num_intervention, batch, num_unit]
                 {
                     "sources->base": (
-                        inputs["cf_stream"].reshape(4, -1, 1),
-                        inputs["stream"].reshape(4, -1, 1),
+                        inputs["cf_stream"].reshape(1, -1, 4),
+                        inputs["stream"].reshape(1, -1, 4),
                     ),
                 },
             )
@@ -245,15 +245,15 @@ def train_intervention(
                 # Patch into both objects
                 sources_indices = torch.concat(
                     [
-                        inputs["stream"].reshape(4, -1, 1),
-                        inputs["stream"].reshape(4, -1, 1),
+                        inputs["stream"].reshape(1, -1, 4),
+                        inputs["stream"].reshape(1, -1, 4),
                     ],
                     dim=2,
                 )
                 base_indices = torch.concat(
                     [
-                        inputs["stream"].reshape(4, -1, 1),
-                        inputs["fixed_object_stream"].reshape(4, -1, 1),
+                        inputs["stream"].reshape(1, -1, 4),
+                        inputs["fixed_object_stream"].reshape(1, -1, 4),
                     ],
                     dim=2,
                 )
@@ -315,8 +315,8 @@ def evaluation(intervenable, testloader, criterion, save_embeds=False, device=No
                 # [num_intervention, batch, num_unit]
                 {
                     "sources->base": (
-                        inputs["cf_stream"].reshape(4, -1, 1),
-                        inputs["stream"].reshape(4, -1, 1),
+                        inputs["cf_stream"].reshape(1, -1, 4),
+                        inputs["stream"].reshape(1, -1, 4),
                     ),
                 },
             )
@@ -385,15 +385,15 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds, 
             # Source indices don't matter
             sources_indices = torch.concat(
                 [
-                    inputs["stream"].reshape(4, -1, 1),
-                    inputs["stream"].reshape(4, -1, 1),
+                    inputs["stream"].reshape(1, -1, 4),
+                    inputs["stream"].reshape(1, -1, 4),
                 ],
                 dim=0,
             )
             base_indices = torch.concat(
                 [
-                    inputs["stream"].reshape(4, -1, 1),
-                    inputs["fixed_object_stream"].reshape(4, -1, 1),
+                    inputs["stream"].reshape(1, -1, 4),
+                    inputs["fixed_object_stream"].reshape(1, -1, 4),
                 ],
                 dim=0,
             )
@@ -437,15 +437,15 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds, 
             # into both the subspaces for fixed and edited objects
             sources_indices = torch.concat(
                 [
-                    inputs["stream"].reshape(4, -1, 1),
-                    inputs["stream"].reshape(4, -1, 1),
+                    inputs["stream"].reshape(1, -1, 4),
+                    inputs["stream"].reshape(1, -1, 4),
                 ],
                 dim=0,
             )
             base_indices = torch.concat(
                 [
-                    inputs["stream"].reshape(4, -1, 1),
-                    inputs["fixed_object_stream"].reshape(4, -1, 1),
+                    inputs["stream"].reshape(1, -1, 4),
+                    inputs["fixed_object_stream"].reshape(1, -1, 4),
                 ],
                 dim=0,
             )
@@ -491,15 +491,15 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds, 
             # into both the subspaces for fixed and edited objects
             sources_indices = torch.concat(
                 [
-                    inputs["stream"].reshape(4, -1, 1),
-                    inputs["stream"].reshape(4, -1, 1),
+                    inputs["stream"].reshape(1, -1, 4),
+                    inputs["stream"].reshape(1, -1, 4),
                 ],
                 dim=0,
             )
             base_indices = torch.concat(
                 [
-                    inputs["stream"].reshape(4, -1, 1),
-                    inputs["fixed_object_stream"].reshape(4, -1, 1),
+                    inputs["stream"].reshape(1, -1, 4),
+                    inputs["fixed_object_stream"].reshape(1, -1, 4),
                 ],
                 dim=0,
             )
