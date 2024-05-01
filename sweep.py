@@ -68,6 +68,12 @@ parser.add_argument(
     required=False,
     default="",
 )
+parser.add_argument(
+    "--train_clf_head_only",
+    action="store_true",
+    default=False,
+    help="Train only the classification head of the model, freezing other layers.",
+)
 parser.add_argument("--num_gpus", type=int, default=1, required=False)
 
 args = parser.parse_args()
@@ -75,16 +81,22 @@ args = parser.parse_args()
 sweep_name = f"ViT-B/{args.patch_size} ({args.obj_size}x{args.obj_size} {args.dataset_str} Stimuli)"
 commands = ["${env}", "${interpreter}", "${program}"]
 
+if args.train_clf_head_only:
+    commands += ["--train_clf_head_only"]
+    clf_str = " CLF Head "
+else:
+    clf_str = ""
+
 if args.pretrained:
     commands += ["--pretrained"]
     if "clip" in args.model_type:
-        sweep_name = f"CLIP {sweep_name}"
+        sweep_name = f"CLIP{clf_str} {sweep_name}"
     elif "dino" in args.model_type:
-        sweep_name = f"DINO {sweep_name}"
+        sweep_name = f"DINO{clf_str} {sweep_name}"
     else:
-        sweep_name = f"ImageNet {sweep_name}"
+        sweep_name = f"ImageNet{clf_str} {sweep_name}"
 else:
-    sweep_name = f"From Scratch {sweep_name}"
+    sweep_name = f"From Scratch{clf_str} {sweep_name}"
 
 if args.ood:
     commands += ["--ood"]
