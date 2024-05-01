@@ -634,6 +634,8 @@ if __name__ == "__main__":
 
         results["interpolated_acc"].append(interpolated_metrics["accuracy"])
         results["interpolated_loss"].append(interpolated_metrics["loss"])
+        
+        os.makedirs(os.path.join(log_path, f"layer_{layer}"), exist_ok=True)
+        intervenable.save(os.path.join(log_path, f"layer_{layer}"))
 
-        pd.DataFrame.from_dict(results).to_csv(os.path.join(log_path, "results.csv"))
-        intervenable.save(log_path)
+    pd.DataFrame.from_dict(results).to_csv(os.path.join(log_path, "results.csv"))
