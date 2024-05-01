@@ -140,6 +140,7 @@ def train_intervention(
     lr=1e-3, 
     abstraction_loss=False, 
     device=None,
+    clip=False,
 ):
     if device is None:
         device = torch.device("cuda")
@@ -183,7 +184,7 @@ def train_intervention(
             trainloader, desc=f"Epoch: {epoch}", position=0, leave=True
         )
 
-        metrics = evaluation(intervenable, valloader, criterion, device=device)
+        metrics = evaluation(intervenable, valloader, criterion, device=device, clip=clip)
         epoch_iterator.set_postfix(
             {"loss": metrics["loss"], "acc": metrics["accuracy"]}
         )
@@ -214,7 +215,10 @@ def train_intervention(
             )
 
             # loss
-            loss = criterion(counterfactual_outputs.logits, inputs["labels"])
+            if clip:
+                loss = criterion(counterfactual_outputs.image_embeds, inputs["labels"])
+            else:
+                loss = criterion(counterfactual_outputs.logits, inputs["labels"])
 
             print(loss)
             # Boundary loss to encourage sparse subspaces
@@ -285,7 +289,7 @@ def train_intervention(
     return intervenable, metrics
 
 
-def evaluation(intervenable, testloader, criterion, save_embeds=False, device=None):
+def evaluation(intervenable, testloader, criterion, save_embeds=False, device=None, clip=False):
     if device is None:
         device = torch.device("cuda")
     
@@ -316,7 +320,10 @@ def evaluation(intervenable, testloader, criterion, save_embeds=False, device=No
                     ),
                 },
             )
-            eval_preds += [counterfactual_outputs.logits]
+            if clip:
+                eval_preds += [counterfactual_outputs.image_embeds]
+            else:
+                eval_preds += [counterfactual_outputs.logits]
     eval_metrics = compute_metrics(eval_preds, criterion, device=device)
     if save_embeds:
         for k, v in intervenable.interventions.items():
@@ -328,7 +335,7 @@ def evaluation(intervenable, testloader, criterion, save_embeds=False, device=No
     return eval_metrics
 
 
-def abstraction_eval(model, intervention, testloader, criterion, layer, embeds, device=None):
+def abstraction_eval(model, intervention, testloader, criterion, layer, embeds, device=None, clip=False):
     if device is None:
         device = torch.device("cuda")
     
@@ -405,7 +412,10 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds, 
                     ),
                 },
             )
-            sampled_eval_preds += [counterfactual_outputs.logits]
+            if clip:
+                sampled_eval_preds += [counterfactual_outputs.image_embeds]
+            else:
+                sampled_eval_preds += [counterfactual_outputs.logits]
     eval_sampled_metrics = compute_metrics(sampled_eval_preds, criterion, device=device)
 
     # Eval with sampled random vectors with limited std
@@ -454,7 +464,10 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds, 
                     ),
                 },
             )
-            sampled_half_std_eval_preds += [counterfactual_outputs.logits]
+            if clip:
+                sampled_half_std_eval_preds += [counterfactual_outputs.image_embeds]
+            else:
+                sampled_half_std_eval_preds += [counterfactual_outputs.logits]
     eval_half_sampled_metrics = compute_metrics(sampled_half_std_eval_preds, criterion, device=device)
 
     # evaluation by interpolating two source vectors
@@ -505,7 +518,10 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds, 
                     ),
                 },
             )
-            interpolated_eval_preds += [counterfactual_outputs.logits]
+            if clip:
+                interpolated_eval_preds += [counterfactual_outputs.image_embeds]
+            else:
+                interpolated_eval_preds += [counterfactual_outputs.logits]
     interpolated_metrics = compute_metrics(interpolated_eval_preds, criterion, device=device)
 
     return eval_sampled_metrics, eval_half_sampled_metrics, interpolated_metrics
@@ -613,13 +629,14 @@ if __name__ == "__main__":
             epochs=args.num_epochs,
             lr=args.lr,
             device=device,
+            clip=pretrain=="clip",
         )
 
         # Effectively snap to binary
         intervenable.set_temperature(0.00001)
-        train_metrics = evaluation(intervenable, trainloader, criterion, device=device)
+        train_metrics = evaluation(intervenable, trainloader, criterion, device=device, clip=pretrain=="clip")
         test_metrics, embeds = evaluation(
-            intervenable, testloader, criterion, save_embeds=True, device=device
+            intervenable, testloader, criterion, save_embeds=True, device=device, clip=pretrain=="clip",
         )
 
         results["layer"].append(layer)
@@ -631,7 +648,7 @@ if __name__ == "__main__":
         for k, v in intervenable.interventions.items():
             intervention = v[0]
         sampled_metrics, half_sampled_metrics, interpolated_metrics = abstraction_eval(
-            model, intervention, testloader, criterion, layer, embeds
+            model, intervention, testloader, criterion, layer, embeds, clip=pretrain=="clip",
         )
         results["sampled_acc"].append(sampled_metrics["accuracy"])
         results["sampled_loss"].append(sampled_metrics["loss"])
