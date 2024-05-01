@@ -37,27 +37,18 @@ class DasDataset(Dataset):
     def __init__(self, root_dir, image_processor, device, control=False):
         self.root_dir = root_dir
         self.im_dict = pkl.load(open(os.path.join(root_dir, "datadict.pkl"), "rb"))
-<<<<<<< HEAD
         self.image_sets = glob.glob(root_dir + "*set*")
         self.image_processor = image_processor
         self.device = device
         self.control = control
 
-=======
-        self.image_sets = glob.glob(root_dir + "set*")
-        #self.image_sets = {i: image_sets[i] for i in range(len(image_sets))}
-        self.image_processor = image_processor
-        self.device = device
-        
->>>>>>> e2b7efb265ee26156b7b02af885ac01c4e556915
     def preprocess(self, im):
         if (
             str(type(self.image_processor))
             == "<class 'transformers.models.clip.processing_clip.CLIPProcessor'>"
         ):
             item = self.image_processor(
-                images=np.array(im, dtype=np.float32), 
-                return_tensors="pt"
+                images=np.array(im, dtype=np.float32), return_tensors="pt"
             )["pixel_values"][0].to(self.device)
         else:
             item = self.image_processor.preprocess(
@@ -72,7 +63,6 @@ class DasDataset(Dataset):
     def __getitem__(self, idx):
         set_path = self.image_sets[idx]
         set_key = set_path.split("/")[-1]
-<<<<<<< HEAD
 
         if self.control:
             streams = np.random.choice(list(range(1, 197)), size=4)
@@ -85,19 +75,11 @@ class DasDataset(Dataset):
         fixed_object_streams = np.array(self.im_dict[set_key]["non_edited_pos"]) + 1
 
         label = self.im_dict[set_key]["label"]
-=======
-        #stream = [t + 1 for t in self.im_dict[set_key]["edited_pos"]]
-        #cf_stream = [t + 1 for t in self.im_dict[set_key]["cf_pos"]]
-        #fixed_object_stream = [t + 1 for t in self.im_dict[set_key]["non_edited_pos"]]
 
-        stream = np.array(self.im_dict[set_key]["edited_pos"]) + 1
-        cf_stream = np.array(self.im_dict[set_key]["cf_pos"]) + 1
-        fixed_object_stream = np.array(self.im_dict[set_key]["non_edited_pos"]) + 1
-
-        label = 1
->>>>>>> e2b7efb265ee26156b7b02af885ac01c4e556915
         base = self.preprocess(Image.open(os.path.join(set_path, "base.png")))
-        source = self.preprocess(Image.open(os.path.join(set_path, "counterfactual.png")))
+        source = self.preprocess(
+            Image.open(os.path.join(set_path, "counterfactual.png"))
+        )
 
         item = {
             "base": base,
@@ -151,7 +133,6 @@ def get_data(analysis, image_processor, comp_str, device, control):
 
 
 def train_intervention(
-<<<<<<< HEAD
     intervenable,
     criterion,
     trainloader,
@@ -159,14 +140,6 @@ def train_intervention(
     epochs=20,
     lr=1e-3,
     abstraction_loss=False,
-=======
-    intervenable, 
-    trainloader, 
-    valloader, 
-    epochs=20, 
-    lr=1e-3, 
-    abstraction_loss=False, 
->>>>>>> e2b7efb265ee26156b7b02af885ac01c4e556915
     device=None,
     clip=False,
 ):
@@ -212,7 +185,9 @@ def train_intervention(
             trainloader, desc=f"Epoch: {epoch}", position=0, leave=True
         )
 
-        metrics = evaluation(intervenable, valloader, criterion, device=device, clip=clip)
+        metrics = evaluation(
+            intervenable, valloader, criterion, device=device, clip=clip
+        )
         epoch_iterator.set_postfix(
             {"loss": metrics["loss"], "acc": metrics["accuracy"]}
         )
@@ -222,21 +197,12 @@ def train_intervention(
                 if v is not None and isinstance(v, torch.Tensor):
                     inputs[k] = v.to(device)
 
-<<<<<<< HEAD
             # if abstraction_loss:
             #     for k, v in intervenable.interventions.items():
             #         v[0].set_abstraction_test(False)
             #         v[0].clear_saved_embeds()
             #         v[0].set_save_embeds(True)
 
-=======
-            if abstraction_loss:
-                for k, v in intervenable.interventions.items():
-                    v[0].set_abstraction_test(False)
-                    v[0].clear_saved_embeds()
-                    v[0].set_save_embeds(True)
-                    
->>>>>>> e2b7efb265ee26156b7b02af885ac01c4e556915
             # Standard counterfactual loss
             _, counterfactual_outputs = intervenable(
                 {"pixel_values": inputs["base"]},
@@ -245,13 +211,8 @@ def train_intervention(
                 # [num_intervention, batch, num_unit]
                 {
                     "sources->base": (
-<<<<<<< HEAD
                         inputs["cf_streams"].reshape(1, -1, 4),
                         inputs["streams"].reshape(1, -1, 4),
-=======
-                        inputs["cf_stream"].reshape(1, -1, 4),
-                        inputs["stream"].reshape(1, -1, 4),
->>>>>>> e2b7efb265ee26156b7b02af885ac01c4e556915
                     ),
                 },
             )
@@ -282,7 +243,6 @@ def train_intervention(
             #         print(k)
             #         v[0].set_abstraction_test(True, abstract_vector)
 
-<<<<<<< HEAD
             #     # Patch into both objects
             #     sources_indices = torch.concat(
             #         [
@@ -298,23 +258,6 @@ def train_intervention(
             #         ],
             #         dim=2,
             #     )
-=======
-                # Patch into both objects
-                sources_indices = torch.concat(
-                    [
-                        inputs["stream"].reshape(1, -1, 4),
-                        inputs["stream"].reshape(1, -1, 4),
-                    ],
-                    dim=2,
-                )
-                base_indices = torch.concat(
-                    [
-                        inputs["stream"].reshape(1, -1, 4),
-                        inputs["fixed_object_stream"].reshape(1, -1, 4),
-                    ],
-                    dim=2,
-                )
->>>>>>> e2b7efb265ee26156b7b02af885ac01c4e556915
 
             #     _, counterfactual_outputs = intervenable(
             #         {"pixel_values": inputs["base"]},
@@ -347,7 +290,9 @@ def train_intervention(
     return intervenable, metrics
 
 
-def evaluation(intervenable, testloader, criterion, save_embeds=False, device=None, clip=False):
+def evaluation(
+    intervenable, testloader, criterion, save_embeds=False, device=None, clip=False
+):
     if device is None:
         device = torch.device("cuda")
 
@@ -366,7 +311,7 @@ def evaluation(intervenable, testloader, criterion, save_embeds=False, device=No
                     inputs[k] = v.to(device)
 
             # CHANGED
-            
+
             _, counterfactual_outputs = intervenable(
                 {"pixel_values": inputs["base"]},
                 [{"pixel_values": inputs["source"]}],
@@ -374,27 +319,17 @@ def evaluation(intervenable, testloader, criterion, save_embeds=False, device=No
                 # [num_intervention, batch, num_unit]
                 {
                     "sources->base": (
-<<<<<<< HEAD
                         inputs["cf_streams"].reshape(1, -1, 4),
                         inputs["streams"].reshape(1, -1, 4),
-=======
-                        inputs["cf_stream"].reshape(1, -1, 4),
-                        inputs["stream"].reshape(1, -1, 4),
->>>>>>> e2b7efb265ee26156b7b02af885ac01c4e556915
                     ),
                 },
             )
             if clip:
                 eval_preds += [counterfactual_outputs.image_embeds]
             else:
-<<<<<<< HEAD
-                eval_preds += [counterfactual_outputs.logits]            
+                eval_preds += [counterfactual_outputs.logits]
             labels += inputs["labels"]
     eval_metrics = compute_metrics(eval_preds, labels, criterion, device=device)
-=======
-                eval_preds += [counterfactual_outputs.logits]
-    eval_metrics = compute_metrics(eval_preds, criterion, device=device)
->>>>>>> e2b7efb265ee26156b7b02af885ac01c4e556915
     if save_embeds:
         for k, v in intervenable.interventions.items():
             embeds = v[0].saved_embeds
@@ -405,7 +340,6 @@ def evaluation(intervenable, testloader, criterion, save_embeds=False, device=No
     return eval_metrics
 
 
-<<<<<<< HEAD
 def run_abstraction(model, testloader, abstract_vector_function, criterion):
 
     eval_preds = []
@@ -484,11 +418,8 @@ def run_abstraction(model, testloader, abstract_vector_function, criterion):
 
 
 def abstraction_eval(
-    model, intervention, testloader, criterion, layer, embeds, device=None
+    model, intervention, testloader, criterion, layer, embeds, device=None, clip=False
 ):
-=======
-def abstraction_eval(model, intervention, testloader, criterion, layer, embeds, device=None, clip=False):
->>>>>>> e2b7efb265ee26156b7b02af885ac01c4e556915
     if device is None:
         device = torch.device("cuda")
 
@@ -547,160 +478,12 @@ def abstraction_eval(model, intervention, testloader, criterion, layer, embeds, 
         choices = np.random.choice(range(len(embeds)), size=2)
         return (embeds[choices[0]] * 0.5) + (embeds[choices[1]] * 0.5)
 
-<<<<<<< HEAD
     abstract_vector_function = interpolate
     interpolated_metrics = run_abstraction(
         intervenable, testloader, abstract_vector_function, criterion
     )
 
     return eval_sampled_metrics, fully_random_metrics, interpolated_metrics
-=======
-            # For abstraction test, inject a random vector
-            # into both the subspaces for fixed and edited objects
-            # Source indices don't matter
-            sources_indices = torch.concat(
-                [
-                    inputs["stream"].reshape(1, -1, 4),
-                    inputs["stream"].reshape(1, -1, 4),
-                ],
-                dim=0,
-            )
-            base_indices = torch.concat(
-                [
-                    inputs["stream"].reshape(1, -1, 4),
-                    inputs["fixed_object_stream"].reshape(1, -1, 4),
-                ],
-                dim=0,
-            )
-
-            _, counterfactual_outputs = intervenable(
-                {"pixel_values": inputs["base"]},
-                [
-                    {"pixel_values": inputs["source"]},
-                ],
-                # each list has a dimensionality of
-                # [num_intervention, batch, num_unit]
-                {
-                    "sources->base": (
-                        sources_indices,
-                        base_indices,
-                    ),
-                },
-            )
-            if clip:
-                sampled_eval_preds += [counterfactual_outputs.image_embeds]
-            else:
-                sampled_eval_preds += [counterfactual_outputs.logits]
-    eval_sampled_metrics = compute_metrics(sampled_eval_preds, criterion, device=device)
-
-    # Eval with sampled random vectors with limited std
-    sampled_half_std_eval_preds = []
-
-    with torch.no_grad():
-        epoch_iterator = tqdm(testloader, desc="Abstraction")
-        for step, inputs in enumerate(epoch_iterator):
-            # Sample a vector from the distribution of rotated sources
-            abstract_vector = torch.normal(means, stds / 2)
-            for k, v in intervenable.interventions.items():
-                v[0].set_abstraction_test(True, abstract_vector)
-
-            for k, v in inputs.items():
-                if v is not None and isinstance(v, torch.Tensor):
-                    inputs[k] = v.to(device)
-
-            # For abstraction test, inject a random vector
-            # into both the subspaces for fixed and edited objects
-            sources_indices = torch.concat(
-                [
-                    inputs["stream"].reshape(1, -1, 4),
-                    inputs["stream"].reshape(1, -1, 4),
-                ],
-                dim=0,
-            )
-            base_indices = torch.concat(
-                [
-                    inputs["stream"].reshape(1, -1, 4),
-                    inputs["fixed_object_stream"].reshape(1, -1, 4),
-                ],
-                dim=0,
-            )
-
-            _, counterfactual_outputs = intervenable(
-                {"pixel_values": inputs["base"]},
-                [
-                    {"pixel_values": inputs["source"]},
-                ],
-                # each list has a dimensionality of
-                # [num_intervention, batch, num_unit]
-                {
-                    "sources->base": (
-                        sources_indices,
-                        base_indices,
-                    ),
-                },
-            )
-            if clip:
-                sampled_half_std_eval_preds += [counterfactual_outputs.image_embeds]
-            else:
-                sampled_half_std_eval_preds += [counterfactual_outputs.logits]
-    eval_half_sampled_metrics = compute_metrics(sampled_half_std_eval_preds, criterion, device=device)
-
-    # evaluation by interpolating two source vectors
-    interpolated_eval_preds = []
-
-    with torch.no_grad():
-        epoch_iterator = tqdm(testloader, desc="Abstraction")
-        for step, inputs in enumerate(epoch_iterator):
-            # interpolate 2 rotated sources
-            choices = np.random.choice(range(len(embeds)), size=2)
-            abstract_vector = (embeds[choices[0]] * 0.5) + (embeds[choices[1]] * 0.5)
-
-            for k, v in intervenable.interventions.items():
-                v[0].set_abstraction_test(True, abstract_vector)
-
-            for k, v in inputs.items():
-                if v is not None and isinstance(v, torch.Tensor):
-                    inputs[k] = v.to(device)
-
-            # For abstraction test, inject a random vector
-            # into both the subspaces for fixed and edited objects
-            sources_indices = torch.concat(
-                [
-                    inputs["stream"].reshape(1, -1, 4),
-                    inputs["stream"].reshape(1, -1, 4),
-                ],
-                dim=0,
-            )
-            base_indices = torch.concat(
-                [
-                    inputs["stream"].reshape(1, -1, 4),
-                    inputs["fixed_object_stream"].reshape(1, -1, 4),
-                ],
-                dim=0,
-            )
-
-            _, counterfactual_outputs = intervenable(
-                {"pixel_values": inputs["base"]},
-                [
-                    {"pixel_values": inputs["source"]},
-                ],
-                # each list has a dimensionality of
-                # [num_intervention, batch, num_unit]
-                {
-                    "sources->base": (
-                        sources_indices,
-                        base_indices,
-                    ),
-                },
-            )
-            if clip:
-                interpolated_eval_preds += [counterfactual_outputs.image_embeds]
-            else:
-                interpolated_eval_preds += [counterfactual_outputs.logits]
-    interpolated_metrics = compute_metrics(interpolated_eval_preds, criterion, device=device)
-
-    return eval_sampled_metrics, eval_half_sampled_metrics, interpolated_metrics
->>>>>>> e2b7efb265ee26156b7b02af885ac01c4e556915
 
 
 # You can define your custom compute_metrics function.
@@ -727,8 +510,8 @@ if __name__ == "__main__":
     try:
         if torch.cuda.is_available():
             device = torch.device("cuda")
-        #elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
-            #device = torch.device("mps")
+        # elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
+        # device = torch.device("mps")
         else:
             device = torch.device("cpu")
     except AttributeError:  # if MPS is not available
@@ -812,14 +595,21 @@ if __name__ == "__main__":
             epochs=args.num_epochs,
             lr=args.lr,
             device=device,
-            clip=pretrain=="clip",
+            clip=pretrain == "clip",
         )
 
         # Effectively snap to binary
         intervenable.set_temperature(0.00001)
-        train_metrics = evaluation(intervenable, trainloader, criterion, device=device, clip=pretrain=="clip")
+        train_metrics = evaluation(
+            intervenable, trainloader, criterion, device=device, clip=pretrain == "clip"
+        )
         test_metrics, embeds = evaluation(
-            intervenable, testloader, criterion, save_embeds=True, device=device, clip=pretrain=="clip",
+            intervenable,
+            testloader,
+            criterion,
+            save_embeds=True,
+            device=device,
+            clip=pretrain == "clip",
         )
 
         results["layer"].append(layer)
@@ -830,18 +620,20 @@ if __name__ == "__main__":
 
         for k, v in intervenable.interventions.items():
             intervention = v[0]
-<<<<<<< HEAD
 
         torch.save(
             intervention.state_dict(),
             os.path.join(log_path, f"{control_str}{layer}_weights.pth"),
-=======
-        sampled_metrics, half_sampled_metrics, interpolated_metrics = abstraction_eval(
-            model, intervention, testloader, criterion, layer, embeds, clip=pretrain=="clip",
->>>>>>> e2b7efb265ee26156b7b02af885ac01c4e556915
         )
         sampled_metrics, fully_random_metrics, interpolated_metrics = abstraction_eval(
-            model, intervention, testloader, criterion, layer, embeds, clip=pretrain=="clip"
+            model,
+            intervention,
+            testloader,
+            criterion,
+            layer,
+            embeds,
+            clip=pretrain == "clip",
+        )
 
         results["sampled_acc"].append(sampled_metrics["accuracy"])
         results["sampled_loss"].append(sampled_metrics["loss"])
@@ -851,14 +643,10 @@ if __name__ == "__main__":
 
         results["interpolated_acc"].append(interpolated_metrics["accuracy"])
         results["interpolated_loss"].append(interpolated_metrics["loss"])
-        
+
         os.makedirs(os.path.join(log_path, f"layer_{layer}"), exist_ok=True)
         intervenable.save(os.path.join(log_path, f"layer_{layer}"))
 
-<<<<<<< HEAD
         pd.DataFrame.from_dict(results).to_csv(
             os.path.join(log_path, f"{control_str}results.csv")
         )
-=======
-    pd.DataFrame.from_dict(results).to_csv(os.path.join(log_path, "results.csv"))
->>>>>>> e2b7efb265ee26156b7b02af885ac01c4e556915
