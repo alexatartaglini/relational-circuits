@@ -50,6 +50,22 @@ class DasDataset(Dataset):
         #self.image_sets = {i: image_sets[i] for i in range(len(image_sets))}
         self.image_processor = image_processor
         self.device = device
+        
+    def preprocess(self, im):
+        if (
+            str(type(self.image_processor))
+            == "<class 'transformers.models.clip.processing_clip.CLIPProcessor'>"
+        ):
+            item = self.image_processor(
+                images=np.array(im, dtype=np.float32), 
+                return_tensors="pt"
+            )["pixel_values"][0].to(self.device)
+        else:
+            item = self.image_processor.preprocess(
+                np.array(im, dtype=np.float32),
+                return_tensors="pt",
+            )["pixel_values"][0].to(self.device)
+        return item
 
     def __len__(self):
         return len(self.image_sets)
@@ -66,17 +82,8 @@ class DasDataset(Dataset):
         fixed_object_stream = np.array(self.im_dict[set_key]["non_edited_pos"]) + 1
 
         label = 1
-        base = self.image_processor.preprocess(
-            np.array(Image.open(os.path.join(set_path, "base.png")), dtype=np.float32),
-            return_tensors="pt",
-        )["pixel_values"][0].to(self.device)
-        source = self.image_processor.preprocess(
-            np.array(
-                Image.open(os.path.join(set_path, "counterfactual.png")),
-                dtype=np.float32,
-            ),
-            return_tensors="pt",
-        )["pixel_values"][0].to(self.device)
+        base = self.preprocess(Image.open(os.path.join(set_path, "base.png")))
+        source = self.preprocess(Image.open(os.path.join(set_path, "counterfactual.png")))
 
         item = {
             "base": base,
