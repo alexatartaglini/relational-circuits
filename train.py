@@ -7,6 +7,7 @@ import os
 from sklearn.metrics import accuracy_score, roc_auc_score
 import wandb
 import numpy as np
+import pandas as pd
 import sys
 import utils
 from argparsers import model_train_parser
@@ -572,89 +573,112 @@ if __name__ == "__main__":
             ood_datasets.append(ood_dataset)
             ood_dataloaders.append(ood_dataloader)
 
-    model_params = tuple([param for param in model.parameters() if param.requires_grad])
-    if args.auxiliary_loss:
-        params = (
-            list(model_params)
-            + list(probes[0].parameters())
-            + list(probes[1].parameters())
-        )
+    if args.evaluate:
+        model.eval()
+        criterion = nn.CrossEntropyLoss()
+
+        results = {}
+        if ood:
+            labels = ood_labels
+            dataloaders = ood_dataloaders
+            datasets = ood_datasets
+        else:
+            labels = [f"{dataset_str}_val", f"{dataset_str}_test"]
+            dataloaders = [val_dataloader, test_dataloader]
+            datasets = [val_dataset, val_dataloader]
+            
+        for label, dataloader, dataset in zip(labels, dataloaders, datasets):
+            res = evaluation(args, model, dataloader, dataset, criterion, 0, device=device)
+            results[label] = {}
+            results[label]["loss"] = res["loss"]
+            results[label]["acc"] = res["acc"]
+            results[label]["roc_auc"] = res["roc_auc"]
+            
+        pd.DataFrame.from_dict(results).to_csv(os.path.join(log_dir, f"{dataset_str}_eval.csv"))
     else:
-        params = model_params
-
-    # Optimizer and scheduler
-    if optim == "adamw":
-        optimizer = torch.optim.AdamW(params, lr=lr)
-    elif optim == "adam":
-        optimizer = torch.optim.Adam(params, lr=lr)
-    elif optim == "sgd":
-        optimizer = torch.optim.SGD(params, lr=lr)
-
-    if lr_scheduler == "reduce_on_plateau":
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            optimizer, patience=patience, mode="max"
+        model_params = tuple([param for param in model.parameters() if param.requires_grad])
+        if args.auxiliary_loss:
+            params = (
+                list(model_params)
+                + list(probes[0].parameters())
+                + list(probes[1].parameters())
+            )
+        else:
+            params = model_params
+    
+        # Optimizer and scheduler
+        if optim == "adamw":
+            optimizer = torch.optim.AdamW(params, lr=lr)
+        elif optim == "adam":
+            optimizer = torch.optim.Adam(params, lr=lr)
+        elif optim == "sgd":
+            optimizer = torch.optim.SGD(params, lr=lr)
+    
+        if lr_scheduler == "reduce_on_plateau":
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer, patience=patience, mode="max"
+            )
+        elif lr_scheduler == "exponential":
+            scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay_rate)
+        elif lr_scheduler.lower() == "none":
+            scheduler = None
+    
+        # Information to store
+        exp_config = {
+            "model_type": model_type,
+            "patch_size": patch_size,
+            "obj_size": obj_size,
+            "pretrained": pretrained,
+            "train_device": device,
+            "dataset": dataset_str,
+            "learning_rate": lr,
+            "scheduler": lr_scheduler,
+            "decay_rate": decay_rate,
+            "patience": 5,
+            "optimizer": optim,
+            "num_epochs": num_epochs,
+            "batch_size": batch_size,
+        }
+    
+        # Initialize Weights & Biases project
+        if wandb_entity:
+            run = wandb.init(
+                project=wandb_proj,
+                config=exp_config,
+                entity=wandb_entity,
+                dir=args.wandb_run_dir,
+                settings=wandb.Settings(start_method="fork"),
+            )
+        else:
+            run = wandb.init(
+                project=wandb_proj,
+                config=exp_config,
+                dir=args.wandb_run_dir,
+                settings=wandb.Settings(start_method="fork"),
+            )
+    
+        run_id = wandb.run.id
+        run.name = f"TRAIN_{model_string}_{dataset_str}_LR{lr}_{run_id}"
+    
+        # Run training loop + evaluations
+        model = train_model(
+            args,
+            model,
+            device,
+            train_dataloader,
+            len(train_dataset),
+            optimizer,
+            scheduler,
+            log_dir,
+            comp_str,
+            val_dataset,
+            val_dataloader,
+            test_dataset,
+            test_dataloader,
+            ood_labels=ood_labels,
+            ood_datasets=ood_datasets,
+            ood_dataloaders=ood_dataloaders,
+            probes=probes,
+            probe_layer=args.probe_layer,
         )
-    elif lr_scheduler == "exponential":
-        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay_rate)
-    elif lr_scheduler.lower() == "none":
-        scheduler = None
-
-    # Information to store
-    exp_config = {
-        "model_type": model_type,
-        "patch_size": patch_size,
-        "obj_size": obj_size,
-        "pretrained": pretrained,
-        "train_device": device,
-        "dataset": dataset_str,
-        "learning_rate": lr,
-        "scheduler": lr_scheduler,
-        "decay_rate": decay_rate,
-        "patience": 5,
-        "optimizer": optim,
-        "num_epochs": num_epochs,
-        "batch_size": batch_size,
-    }
-
-    # Initialize Weights & Biases project
-    if wandb_entity:
-        run = wandb.init(
-            project=wandb_proj,
-            config=exp_config,
-            entity=wandb_entity,
-            dir=args.wandb_run_dir,
-            settings=wandb.Settings(start_method="fork"),
-        )
-    else:
-        run = wandb.init(
-            project=wandb_proj,
-            config=exp_config,
-            dir=args.wandb_run_dir,
-            settings=wandb.Settings(start_method="fork"),
-        )
-
-    run_id = wandb.run.id
-    run.name = f"TRAIN_{model_string}_{dataset_str}_LR{lr}_{run_id}"
-
-    # Run training loop + evaluations
-    model = train_model(
-        args,
-        model,
-        device,
-        train_dataloader,
-        len(train_dataset),
-        optimizer,
-        scheduler,
-        log_dir,
-        comp_str,
-        val_dataset,
-        val_dataloader,
-        test_dataset,
-        test_dataloader,
-        ood_labels=ood_labels,
-        ood_datasets=ood_datasets,
-        ood_dataloaders=ood_dataloaders,
-        probes=probes,
-        probe_layer=args.probe_layer,
-    )
-    wandb.finish()
+        wandb.finish()

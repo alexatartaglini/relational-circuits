@@ -46,6 +46,12 @@ def model_train_parser(parser):
         default=False,
         help="Train with auxiliary loss to induce subspaces.",
     )
+    parser.add_argument(
+        "--evaluate",
+        action="store_true",
+        default=False,
+        help="Evaluate model only.",
+    )
 
     parser.add_argument(
         "--probe_layer", default=-1, type=int, help="Probe layer for auxiliary loss"
