@@ -407,7 +407,6 @@ class SigmoidMaskRotatedSpaceIntervention(
 
     def set_abstraction_test(self, bool, abstract_vector=None):
         self.abstract_vector = abstract_vector
-        print(abstract_vector.shape)
         self.abstraction_test = bool
 
     def get_boundary_parameters(self):
@@ -429,7 +428,12 @@ class SigmoidMaskRotatedSpaceIntervention(
         batch_size = base.shape[0]
         rotated_base = self.rotate_layer(base)
         rotated_source = self.rotate_layer(source)
-        print(rotated_source.shape)
+        print(
+            torch.dist(
+                self.rotate_layer.weight.T @ self.rotate_layer.weight,
+                torch.eye(len(self.rotate_layer.weight)),
+            )
+        )
         # get boundary mask between 0 and 1 from sigmoid
         boundary_mask = torch.sigmoid(self.masks / self.temperature)
 
@@ -445,13 +449,11 @@ class SigmoidMaskRotatedSpaceIntervention(
             # Multiplying by boundary mask shouldn't make a difference, these
             # stored vectors are taken after boundary masking
             rotated_source = self.abstract_vector
-            print(rotated_source.shape)
 
         # interchange
         rotated_output = (
             1.0 - boundary_mask
         ) * rotated_base + boundary_mask * rotated_source
-        print(rotated_output.shape)
         # inverse output
         output = torch.matmul(rotated_output, self.rotate_layer.weight.T)
         if self.save_embeds:

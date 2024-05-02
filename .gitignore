@@ -5,6 +5,7 @@ __MACOSX/*
 *.pth
 .ipynb_checkpoints/*
 stimuli/das/trainsize_6400_256-256-256/*
+stimuli/das/trainsize_6400_32-32-224/*
 stimuli/NOISE_RGB/aligned/N_32/trainsize_6400_256-256-256/*
 stimuli/NOISE_RGB/aligned/N_32/trainsize_6400_32-32-224/*
 stimuli/mts/aligned/N_32/trainsize_6400_256-256-256/*
@@ -12,4 +13,7 @@ stimuli/mts/aligned/N_32/trainsize_6400_32-32-224/*
 
 stimuli/counting/NOISE_RGB/N_32/*
 
+CCV/*
+*.err
+*.out
 wandb*

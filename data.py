@@ -1451,6 +1451,7 @@ def create_das_datasets(
             "edited_pos": edited_pos,
             "non_edited_pos": non_edited_pos,
             "cf_pos": cf_position,
+            "cf_other_object_pos": non_cf_position,
             "label": 1
         }
         
@@ -1574,6 +1575,7 @@ def create_das_datasets(
             "edited_pos": edited_pos,
             "non_edited_pos": non_edited_pos,
             "cf_pos": cf_position,
+            "cf_other_object_pos": non_cf_position,
             "label": 0
         }
         
@@ -1624,8 +1626,8 @@ if __name__ == "__main__":
         create_subspace_datasets(compositional=args.compositional, analysis="shape")
     elif args.create_das:
         for mode in ["train", "val", "test"]:
-            create_das_datasets(compositional=args.compositional, analysis="color", mode=mode, samples=500)
-            create_das_datasets(compositional=args.compositional, analysis="shape", mode=mode, samples=500)
+            create_das_datasets(compositional=args.compositional, analysis="color", mode=mode, samples=1500)
+            create_das_datasets(compositional=args.compositional, analysis="shape", mode=mode, samples=1500)
     elif args.create_source:
         create_source(source=args.source, obj_size=args.obj_size)
     else:  # Create same-different dataset

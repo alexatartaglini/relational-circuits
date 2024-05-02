@@ -405,16 +405,10 @@ def das_parser(parser):
         help="Number of training epochs for intervention.",
     )
     parser.add_argument(
-        "--abstraction_loss",
-        action="store_true",
-        default=False,
-        help="Use abstraction loss.",
-    )
-    parser.add_argument(
         "--control",
-        action="store_true",
-        default=False,
-        help="Take random source tokens as controls.",
+        type=str,
+        default="",
+        help="Set control condition.",
     )
     args = parser.parse_args()
     return args

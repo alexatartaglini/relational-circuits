@@ -1,6 +1,6 @@
 import sys
 
-sys.path.append("./pyvene")
+sys.path.append("/users/mlepori/data/mlepori/projects/relational-circuits/pyvene")
 
 import torch
 from tqdm import tqdm, trange
@@ -64,10 +64,15 @@ class DasDataset(Dataset):
         set_path = self.image_sets[idx]
         set_key = set_path.split("/")[-1]
 
-        if self.control:
+        print(self.control)
+        if self.control == "random_patch":
+            print("RANDOM PATCH")
             streams = np.random.choice(list(range(1, 197)), size=4)
             cf_streams = np.random.choice(list(range(1, 197)), size=4)
-            # Add in a control patching from the other object in the counterfactual image
+        elif self.control == "wrong_object":
+            print("WRONG OBJECT")
+            streams = np.array(self.im_dict[set_key]["edited_pos"]) + 1
+            cf_streams = np.array(self.im_dict[set_key]["cf_other_object_pos"]) + 1
         else:
             streams = np.array(self.im_dict[set_key]["edited_pos"]) + 1
             cf_streams = np.array(self.im_dict[set_key]["cf_pos"]) + 1
@@ -139,7 +144,6 @@ def train_intervention(
     valloader,
     epochs=20,
     lr=1e-3,
-    abstraction_loss=False,
     device=None,
     clip=False,
 ):
@@ -197,12 +201,6 @@ def train_intervention(
                 if v is not None and isinstance(v, torch.Tensor):
                     inputs[k] = v.to(device)
 
-            # if abstraction_loss:
-            #     for k, v in intervenable.interventions.items():
-            #         v[0].set_abstraction_test(False)
-            #         v[0].clear_saved_embeds()
-            #         v[0].set_save_embeds(True)
-
             # Standard counterfactual loss
             _, counterfactual_outputs = intervenable(
                 {"pixel_values": inputs["base"]},
@@ -225,60 +223,9 @@ def train_intervention(
 
             # Boundary loss to encourage sparse subspaces
             for k, v in intervenable.interventions.items():
-                # if abstraction_loss:
-                #     embeds = v[0].saved_embeds
                 boundary_loss = v[0].mask_sum * 0.001
 
             loss += boundary_loss
-
-            # Abstraction loss
-            # if abstraction_loss:
-            #     embeds = torch.concat(embeds, dim=0)
-            #     means = torch.mean(embeds, dim=0)
-            #     stds = torch.std(embeds, dim=0)
-
-            #     # Sample a random vector for the batch
-            #     abstract_vector = torch.normal(means, stds)
-            #     for k, v in intervenable.interventions.items():
-            #         print(k)
-            #         v[0].set_abstraction_test(True, abstract_vector)
-
-            #     # Patch into both objects
-            #     sources_indices = torch.concat(
-            #         [
-            #             inputs["stream"].reshape(1, -1, 1),
-            #             inputs["stream"].reshape(1, -1, 1),
-            #         ],
-            #         dim=2,
-            #     )
-            #     base_indices = torch.concat(
-            #         [
-            #             inputs["stream"].reshape(1, -1, 1),
-            #             inputs["fixed_object_stream"].reshape(1, -1, 1),
-            #         ],
-            #         dim=2,
-            #     )
-
-            #     _, counterfactual_outputs = intervenable(
-            #         {"pixel_values": inputs["base"]},
-            #         [{"pixel_values": inputs["source"]}],
-            #         # each list has a dimensionality of
-            #         # [num_intervention, batch, num_unit]
-            #         {
-            #             "sources->base": (
-            #                 sources_indices,
-            #                 base_indices,
-            #             ),
-            #         },
-            #     )
-
-            #     # loss and backprop
-            #     abstraction_loss = criterion(
-            #         counterfactual_outputs.logits, inputs["labels"]
-            #     )
-            #     print(abstraction_loss)
-
-            #     loss += abstraction_loss
 
             loss.backward()
             optimizer.step()
@@ -528,7 +475,6 @@ if __name__ == "__main__":
     task = args.task
     control = args.control
     analysis = args.analysis
-    abstraction_loss = args.abstraction_loss
     compositional = args.compositional
     pretrain = args.pretrain
     run_id = args.run_id
@@ -558,10 +504,7 @@ if __name__ == "__main__":
     model.to(device)
     model.eval()
 
-    abstraction_loss_str = "_abstraction_loss" if abstraction_loss else ""
-    control_str = "control_" if control else ""
-
-    log_path = f"logs/{pretrain}/{ds}/aligned/N_{obj_size}/trainsize_6400_{comp_str}/DAS{abstraction_loss_str}/{analysis}"
+    log_path = f"logs/{pretrain}/{task}/{ds}/aligned/N_{obj_size}/trainsize_6400_{comp_str}/DAS/{analysis}"
     os.makedirs(log_path, exist_ok=True)
 
     results = {
@@ -595,7 +538,6 @@ if __name__ == "__main__":
             criterion,
             trainloader,
             valloader,
-            abstraction_loss=abstraction_loss,
             epochs=args.num_epochs,
             lr=args.lr,
             device=device,
@@ -625,9 +567,13 @@ if __name__ == "__main__":
         for k, v in intervenable.interventions.items():
             intervention = v[0]
 
+        control_str = control + "_"
+
+        os.makedirs(os.path.join(log_path, "weights"), exist_ok=True)
+
         torch.save(
             intervention.state_dict(),
-            os.path.join(log_path, f"{control_str}{layer}_weights.pth"),
+            os.path.join(log_path, "weights", f"{control_str}{layer}_weights.pth"),
         )
         sampled_metrics, fully_random_metrics, interpolated_metrics = abstraction_eval(
             model,
