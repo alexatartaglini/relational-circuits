@@ -64,13 +64,10 @@ class DasDataset(Dataset):
         set_path = self.image_sets[idx]
         set_key = set_path.split("/")[-1]
 
-        print(self.control)
         if self.control == "random_patch":
-            print("RANDOM PATCH")
             streams = np.random.choice(list(range(1, 197)), size=4)
             cf_streams = np.random.choice(list(range(1, 197)), size=4)
         elif self.control == "wrong_object":
-            print("WRONG OBJECT")
             streams = np.array(self.im_dict[set_key]["edited_pos"]) + 1
             cf_streams = np.array(self.im_dict[set_key]["cf_other_object_pos"]) + 1
         else:
@@ -97,18 +94,40 @@ class DasDataset(Dataset):
         return item
 
 
-def das_config(model_type, intervention_type, layer):
+def das_config(model_type, layer):
     # Taken from Pyvene tutorial
+
+    # Set up four interventions
     config = IntervenableConfig(
         model_type=model_type,
         representations=[
-            RepresentationConfig(
-                layer,  # layer
-                intervention_type,  # intervention type
-                "pos",  # Unit
-                4,  # Number of simultaneous intervened units
-            ),
+            {
+                "layer": layer,
+                "component": "block_output",
+                "unit": "pos",
+                "max_number_of_units": 1,
+            },
+            {
+                "layer": layer,
+                "component": "block_output",
+                "unit": "pos",
+                "max_number_of_units": 1,
+            },
+            {
+                "layer": layer,
+                "component": "block_output",
+                "unit": "pos",
+                "max_number_of_units": 1,
+            },
+            {
+                "layer": layer,
+                "component": "block_output",
+                "unit": "pos",
+                "max_number_of_units": 1,
+            },
         ],
+        # intervene on base at the same time
+        mode="parallel",
         intervention_types=SigmoidMaskRotatedSpaceIntervention,
     )
     return config
@@ -146,6 +165,7 @@ def train_intervention(
     lr=1e-3,
     device=None,
     clip=False,
+    tie_weights=False,
 ):
     if device is None:
         device = torch.device("cuda")
@@ -153,10 +173,16 @@ def train_intervention(
     t_total = int(len(trainloader) * epochs)
     warm_up_steps = 0.1 * t_total
 
-    optimizer_params = []
-    for k, v in intervenable.interventions.items():
-        optimizer_params += [{"params": v[0].rotate_layer.parameters()}]
-        optimizer_params += [{"params": v[0].masks, "lr": 1e-1}]
+    if tie_weights:
+        optimizer_params = []
+        intervention = list(intervenable.interventions.values())[0][0]
+        optimizer_params += [{"params": intervention.rotate_layer.parameters()}]
+        optimizer_params += [{"params": intervention.masks, "lr": 1e-1}]
+    else:
+        optimizer_params = []
+        for k, v in intervenable.interventions.items():
+            optimizer_params += [{"params": v[0].rotate_layer.parameters()}]
+            optimizer_params += [{"params": v[0].masks, "lr": 1e-1}]
 
     optimizer = torch.optim.Adam(optimizer_params, lr=lr)
     scheduler = get_linear_schedule_with_warmup(
@@ -209,8 +235,8 @@ def train_intervention(
                 # [num_intervention, batch, num_unit]
                 {
                     "sources->base": (
-                        inputs["cf_streams"].reshape(1, -1, 4),
-                        inputs["streams"].reshape(1, -1, 4),
+                        inputs["cf_streams"].reshape(4, -1, 1),
+                        inputs["streams"].reshape(4, -1, 1),
                     ),
                 },
             )
@@ -221,9 +247,21 @@ def train_intervention(
             else:
                 loss = criterion(counterfactual_outputs.logits, inputs["labels"])
 
+            # Ensure that weights from all interventions are shared
+            intervention_weight = list(intervenable.interventions.values())[0][
+                0
+            ].rotate_layer.weight
+
             # Boundary loss to encourage sparse subspaces
             for k, v in intervenable.interventions.items():
                 boundary_loss = v[0].mask_sum * 0.001
+                # Assert that weight sharing between interventions is working
+                if tie_weights:
+                    assert torch.all(
+                        torch.eq(
+                            intervention_weight.data, v[0].rotate_layer.weight.data
+                        )
+                    )
 
             loss += boundary_loss
 
@@ -266,8 +304,8 @@ def evaluation(
                 # [num_intervention, batch, num_unit]
                 {
                     "sources->base": (
-                        inputs["cf_streams"].reshape(1, -1, 4),
-                        inputs["streams"].reshape(1, -1, 4),
+                        inputs["cf_streams"].reshape(4, -1, 1),
+                        inputs["streams"].reshape(4, -1, 1),
                     ),
                 },
             )
@@ -333,15 +371,15 @@ def run_abstraction(model, testloader, abstract_vector_function, criterion, clip
             # Source indices don't matter
             sources_indices = torch.concat(
                 [
-                    inputs["streams"].reshape(1, -1, 4),
-                    inputs["streams"].reshape(1, -1, 4),
+                    inputs["streams"].reshape(4, -1, 1),
+                    inputs["streams"].reshape(4, -1, 1),
                 ],
                 dim=0,
             )
             base_indices = torch.concat(
                 [
-                    inputs["streams"].reshape(1, -1, 4),
-                    inputs["fixed_object_streams"].reshape(1, -1, 4),
+                    inputs["streams"].reshape(4, -1, 1),
+                    inputs["fixed_object_streams"].reshape(4, -1, 1),
                 ],
                 dim=0,
             )
@@ -369,7 +407,7 @@ def run_abstraction(model, testloader, abstract_vector_function, criterion, clip
 
 
 def abstraction_eval(
-    model, intervention, testloader, criterion, layer, embeds, device=None, clip=False
+    model, interventions, testloader, criterion, layer, embeds, device=None, clip=False
 ):
     if device is None:
         device = torch.device("cuda")
@@ -386,13 +424,49 @@ def abstraction_eval(
                 "layer": layer,
                 "component": "block_output",
                 "unit": "pos",
-                "max_number_of_units": 4,
+                "max_number_of_units": 1,
             },
             {
                 "layer": layer,
                 "component": "block_output",
                 "unit": "pos",
-                "max_number_of_units": 4,
+                "max_number_of_units": 1,
+            },
+            {
+                "layer": layer,
+                "component": "block_output",
+                "unit": "pos",
+                "max_number_of_units": 1,
+            },
+            {
+                "layer": layer,
+                "component": "block_output",
+                "unit": "pos",
+                "max_number_of_units": 1,
+            },
+            {
+                "layer": layer,
+                "component": "block_output",
+                "unit": "pos",
+                "max_number_of_units": 1,
+            },
+            {
+                "layer": layer,
+                "component": "block_output",
+                "unit": "pos",
+                "max_number_of_units": 1,
+            },
+            {
+                "layer": layer,
+                "component": "block_output",
+                "unit": "pos",
+                "max_number_of_units": 1,
+            },
+            {
+                "layer": layer,
+                "component": "block_output",
+                "unit": "pos",
+                "max_number_of_units": 1,
             },
         ],
         # intervene on base at the same time
@@ -404,11 +478,25 @@ def abstraction_eval(
     intervenable.set_device(device)
     intervenable.disable_model_gradients()
 
-    # Ensure that both interventions have the same settings as the base intervention
-    for k, v in intervenable.interventions.items():
-        v[0].rotate_layer = intervention.rotate_layer
-        v[0].masks = intervention.masks
-        v[0].temperature = intervention.temperature
+    # Ensure that interventions on both objects have the same settings as the base interventions
+    for i in range(4):
+        key1 = f"layer.0.comp.block_output.unit.pos.nunit.1#{i}"
+        intervenable.interventions[key1][0].rotate_layer = interventions[key1][
+            0
+        ].rotate_layer
+        intervenable.interventions[key1][0].masks = interventions[key1][0].masks
+        intervenable.interventions[key1][0].temperature = interventions[key1][
+            0
+        ].temperature
+
+        key2 = f"layer.0.comp.block_output.unit.pos.nunit.1#{i + 4}"
+        intervenable.interventions[key2][0].rotate_layer = interventions[key1][
+            0
+        ].rotate_layer
+        intervenable.interventions[key2][0].masks = interventions[key1][0].masks
+        intervenable.interventions[key2][0].temperature = interventions[key1][
+            0
+        ].temperature
 
     # Eval with sampled IID random vectors
     abstract_vector_function = partial(torch.normal, mean=means, std=stds)
@@ -435,6 +523,17 @@ def abstraction_eval(
     )
 
     return eval_sampled_metrics, fully_random_metrics, interpolated_metrics
+
+
+def tie_weights(model):
+    # Tie weights between interventions
+    intervention = list(model.interventions.values())[0][0]
+    # Ensure that all interventions share the same parameters
+    for k, v in model.interventions.items():
+        v[0].rotate_layer = intervention.rotate_layer
+        v[0].masks = intervention.masks
+        v[0].temperature = intervention.temperature
+    return model
 
 
 # You can define your custom compute_metrics function.
@@ -482,6 +581,7 @@ if __name__ == "__main__":
     obj_size = args.obj_size
     min_layer = args.min_layer
     max_layer = args.max_layer
+    tie_intervention_weights = args.tie_weights
 
     if compositional < 0:
         comp_str = "256-256-256"
@@ -527,10 +627,14 @@ if __name__ == "__main__":
 
     for layer in range(min_layer, max_layer):
         print(f"Layer: {layer}")
-        config = das_config(type(model), "block_output", layer)
+        config = das_config(type(model), layer)
         intervenable = IntervenableModel(config, model)
         intervenable.set_device(device)
         intervenable.disable_model_gradients()
+
+        if tie_intervention_weights:
+            intervenable = tie_weights(intervenable)
+
         criterion = CrossEntropyLoss()
 
         intervenable, metrics = train_intervention(
@@ -542,6 +646,7 @@ if __name__ == "__main__":
             lr=args.lr,
             device=device,
             clip=pretrain == "clip",
+            tie_weights=True,
         )
 
         # Effectively snap to binary
@@ -564,20 +669,35 @@ if __name__ == "__main__":
         results["test_acc"].append(test_metrics["accuracy"])
         results["test_loss"].append(test_metrics["loss"])
 
-        for k, v in intervenable.interventions.items():
-            intervention = v[0]
-
         control_str = control + "_"
 
         os.makedirs(os.path.join(log_path, "weights"), exist_ok=True)
 
-        torch.save(
-            intervention.state_dict(),
-            os.path.join(log_path, "weights", f"{control_str}{layer}_weights.pth"),
-        )
+        # If weights are tied, just save one version of weights, otherwise save all weights
+        if tie_intervention_weights:
+            for k, v in intervenable.interventions.items():
+                intervention = v[0]
+
+            torch.save(
+                intervention.state_dict(),
+                os.path.join(log_path, "weights", f"{control_str}{layer}_weights.pth"),
+            )
+        else:
+            idx = 0
+            for k, v in intervenable.interventions.items():
+                intervention = v[0]
+                torch.save(
+                    intervention.state_dict(),
+                    os.path.join(
+                        log_path, "weights", f"{control_str}{layer}_weights_{idx}.pth"
+                    ),
+                )
+                idx += 1
+
+        # Run abstraction eval
         sampled_metrics, fully_random_metrics, interpolated_metrics = abstraction_eval(
             model,
-            intervention,
+            intervenable.interventions,
             testloader,
             criterion,
             layer,

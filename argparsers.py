@@ -407,8 +407,14 @@ def das_parser(parser):
     parser.add_argument(
         "--control",
         type=str,
-        default="",
+        default="none",
         help="Set control condition.",
+    )
+    parser.add_argument(
+        "--tie_weights",
+        type=bool,
+        default=True,
+        help="Whether to tie intervention weights position-wise",
     )
     args = parser.parse_args()
     return args

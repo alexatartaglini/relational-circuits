@@ -428,12 +428,7 @@ class SigmoidMaskRotatedSpaceIntervention(
         batch_size = base.shape[0]
         rotated_base = self.rotate_layer(base)
         rotated_source = self.rotate_layer(source)
-        print(
-            torch.dist(
-                self.rotate_layer.weight.T @ self.rotate_layer.weight,
-                torch.eye(len(self.rotate_layer.weight)),
-            )
-        )
+
         # get boundary mask between 0 and 1 from sigmoid
         boundary_mask = torch.sigmoid(self.masks / self.temperature)
 
