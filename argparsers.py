@@ -220,7 +220,7 @@ def model_probe_parser(parser):
         "--dataset_str",
         required=False,
         help="Names of the directory containing stimuli",
-        default="NOISE_RGB/aligned/N_32/trainsize_6400_32-32-224",
+        default="mts/aligned/N_32/trainsize_6400_256-256-256",
     )
     parser.add_argument(
         "--optim",
@@ -240,6 +240,15 @@ def model_probe_parser(parser):
     )
     parser.add_argument(
         "--seed", type=int, default=0, help="If not given, picks random seed."
+    )
+    parser.add_argument(
+        "--alpha", type=float, default=1.0, help="Multiplier on intervention vector"
+    )
+    parser.add_argument(
+        "--control",
+        type=bool,
+        default=False,
+        help="Whether to swap add and delete directions",
     )
     args = parser.parse_args()
     return args

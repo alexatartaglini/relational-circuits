@@ -12,6 +12,7 @@ import itertools
 from argparsers import data_generation_parser
 import zipfile
 import copy
+import torch
 
 int_to_label = {1: "same", 0: "different"}
 label_to_int = {
@@ -82,9 +83,8 @@ def coord_to_token(coords, all_patches):
         
     return tokens
 
-def load_dataset(root_dir, subset=None):
+def load_dataset(root_dir, subset=None, task="discrimination", size=-1):
     """Helper function to load image datasets"""
-    
     if not os.path.isdir(root_dir):
         try:
             with zipfile.ZipFile(f"{root_dir}.zip", "r") as zip_ref:
@@ -103,19 +103,38 @@ def load_dataset(root_dir, subset=None):
         labels = subset
 
     for l in labels.keys():
+
+        label_count = 0
+
         # Load in data dict to get streams, colors, shapes, textures
         data_dictionary = os.path.join(root_dir, "datadict.pkl")
         data_dictionary = pkl.load(open(data_dictionary, "rb"))
 
         im_paths = glob.glob("{0}/{1}/*.png".format(root_dir, labels[l]))
+        im_paths.sort()
 
         for im in im_paths:
-            pixels = Image.open(im)
             dict_key = os.path.join(*im.split("/")[-3:])
-            
-            try:
+
+            if task == "rmts":            
                 im_dict = {
-                    "image": pixels,
+                    "image_path": im,
+                    "label": l,
+                    "stream_1": [i + 1 for i in data_dictionary[dict_key]["pos1"]],  # +1 accounts for the CLS token
+                    "stream_2": [i + 1 for i in data_dictionary[dict_key]["pos2"]],
+                    "display_stream_1": [i + 1 for i in data_dictionary[dict_key]["display1-pos"]],  # +1 accounts for the CLS token
+                    "display_stream_2": [i + 1 for i in data_dictionary[dict_key]["display2-pos"]],
+                    "shape_1": data_dictionary[dict_key]["s1"],
+                    "shape_2": data_dictionary[dict_key]["s2"],
+                    "display_shape_1": data_dictionary[dict_key]["display1-s"],
+                    "display_shape_2": data_dictionary[dict_key]["display2-s"],
+                    "color_1": color_to_int[data_dictionary[dict_key]["c1"]],
+                    "color_2": color_to_int[data_dictionary[dict_key]["c2"]],
+                    "display_color_1": color_to_int[data_dictionary[dict_key]["display1-c"]],
+                    "display_color_2": color_to_int[data_dictionary[dict_key]["display2-c"]],
+                }
+            elif task == "discrimination":            
+                im_dict = {
                     "image_path": im,
                     "label": l,
                     "stream_1": [i + 1 for i in data_dictionary[dict_key]["pos1"]],  # +1 accounts for the CLS token
@@ -125,112 +144,176 @@ def load_dataset(root_dir, subset=None):
                     "color_1": color_to_int[data_dictionary[dict_key]["c1"]],
                     "color_2": color_to_int[data_dictionary[dict_key]["c2"]],
                 }
-            except KeyError:
-                im_dict = {
-                    "image": pixels,
-                    "image_path": im,
-                    "label": l,
-                    "stream_1": [i + 1 for i in data_dictionary[dict_key]["pos1"]],  # +1 accounts for the CLS token
-                    "stream_2": [i + 1 for i in data_dictionary[dict_key]["pos2"]],
-                    "shape_1": data_dictionary[dict_key]["s1"],
-                    "shape_2": data_dictionary[dict_key]["s2"],
-                    "color_1": color_to_int[data_dictionary[dict_key]["t1"]],
-                    "color_2": color_to_int[data_dictionary[dict_key]["t2"]],
-                }
 
             ims[idx] = im_dict
             idx += 1
-            pixels.close()
+            label_count += 1
+
+            if label_count == size:
+                break
+
     return ims
 
 
-# TODO: add texture
 class ProbeDataset(Dataset):
     def __init__(
         self,
         root_dir,
         embeddings,
-        probe_stream,
         probe_layer,
         probe_value,
-        num_shapes=16,
-        num_colors=16,
         subset=None,
+        task="discrimination",
+        size=-1,
     ):
-        self.im_dict = load_dataset(root_dir, subset=subset)
+        self.im_dict = load_dataset(root_dir, subset=subset, task=task, size=size)
         self.embeddings = embeddings
-        self.probe_stream = probe_stream
         self.probe_layer = probe_layer
         self.probe_value = probe_value
+        self.task = task
 
-        # Dictionary mapping unordered pairs of shape/color to labels
-        self.shapeCombo2Label = {
-            k: v
-            for v, k in enumerate(
-                list(itertools.combinations_with_replacement(range(num_shapes), 2))
-            )
-        }
-        self.colorCombo2Label = {
-            k: v
-            for v, k in enumerate(
-                list(itertools.combinations_with_replacement(range(num_colors), 2))
-            )
-        }
+        self.data = self.process_data()
+
+    def process_data(self):
+        data = []
+        for idx in range(len(self.im_dict)):
+            current_dict = self.im_dict[idx]
+
+            shape_1 = int(current_dict["shape_1"])
+            shape_2 = int(current_dict["shape_2"])
+            color_1 = current_dict["color_1"]
+            color_2 = current_dict["color_2"]
+
+            # Figure this out with new embeddings
+            embedding_1 = self.embeddings[current_dict["image_path"]]["embed_1"][self.probe_layer]
+            embedding_2 = self.embeddings[current_dict["image_path"]]["embed_2"][self.probe_layer]
+
+            if self.task == "rmts":
+                display_shape_1 = int(self.im_dict[idx]["display_shape_1"])
+                display_shape_2 = int(self.im_dict[idx]["display_shape_2"])
+                display_color_1 = self.im_dict[idx]["display_color_1"]
+                display_color_2 = self.im_dict[idx]["display_color_2"]
+                if (shape_1 == shape_2) and (color_1 == color_2):
+                    intermediate_judgement = 1
+                else:
+                    intermediate_judgement  = 0    
+
+                if (display_shape_1 == display_shape_2) and (display_color_1 == display_color_2):
+                    display_intermediate_judgement = 1
+                else:
+                    display_intermediate_judgement = 0   
+
+                if self.probe_value != "intermediate_judgements":
+                    display_embedding_1 = self.embeddings[current_dict["image_path"]]["display_embed_1"][self.probe_layer]
+                    display_embedding_2 = self.embeddings[current_dict["image_path"]]["display_embed_2"][self.probe_layer]
+                    if self.probe_value == "color":
+                        label_1 = color_1
+                        label_2 = color_2
+                        display_label_1 = display_color_1
+                        display_label_2 = display_color_2
+
+                    elif self.probe_value == "shape":
+                        label_1 = shape_1
+                        label_2 = shape_2
+                        display_label_1 = display_shape_1
+                        display_label_2 = display_shape_2
+                    data += [
+                        {"embeddings": embedding_1.reshape(-1), "labels": label_1},
+                        {"embeddings": embedding_2.reshape(-1), "labels": label_2},
+                        {"embeddings": display_embedding_1.reshape(-1), "labels": display_label_1},
+                        {"embeddings": display_embedding_2.reshape(-1), "labels": display_label_2}
+                    ]
+                else:
+                    embedding = torch.concat([self.embeddings[current_dict["image_path"]]["embed_1"][self.probe_layer], self.embeddings[current_dict["image_path"]]["embed_2"][self.probe_layer]], dim=0)
+                    display_embedding = torch.concat([self.embeddings[current_dict["image_path"]]["display_embed_1"][self.probe_layer], self.embeddings[current_dict["image_path"]]["display_embed_2"][self.probe_layer]], dim=0)
+                    label = intermediate_judgement
+                    display_label = display_intermediate_judgement
+                    data += [
+                        {"embeddings": embedding.reshape(-1), "labels": label},
+                        {"embeddings": display_embedding.reshape(-1), "labels": display_label},
+                    ]   
+            if self.task == "discrimination":
+                if self.probe_value == "color":
+                    label_1 = color_1
+                    label_2 = color_2
+                elif self.probe_value == "shape":
+                    label_1 = shape_1
+                    label_2 = shape_2
+
+                data += [
+                    {"embeddings": embedding_1.reshape(-1), "labels": label_1},
+                    {"embeddings": embedding_2.reshape(-1), "labels": label_2},
+
+                ]
+                    
+        return data
 
     def __len__(self):
-        return len(self.embeddings.keys())
+        return len(self.data)
 
     def __getitem__(self, idx):
+        return self.data[idx]
 
-        shape_1 = int(self.im_dict[idx]["shape_1"])
-        shape_2 = int(self.im_dict[idx]["shape_2"])
-        color_1 = self.im_dict[idx]["color_1"]
-        color_2 = self.im_dict[idx]["color_2"]
 
-        # For probing experiments, provide indices of either object stream or cls stream
-        if self.probe_stream == "cls":
-            stream = 0
-        elif self.probe_stream != None:
-            stream = self.im_dict[idx][self.probe_stream]
+class LinearInterventionDataset(Dataset):
+    """Dataset object for linear interventions on RMTS"""
+    def __init__(
+        self,
+        root_dir,
+        transform,
+        size=-1,
+    ):
+        self.root_dir = root_dir
+        self.im_dict = load_dataset(root_dir, subset=None, task="rmts", size=size)
+        self.transform = transform
 
-        embedding = self.embeddings[idx][self.probe_layer][0][stream]
+    def __len__(self):
+        return len(list(self.im_dict.keys()))
 
-        # For probing, associate correct labels for the stream we're probing
-        if self.probe_value == "shape":
-            if self.probe_stream == "stream_1":
-                label = shape_1
-            elif self.probe_stream == "stream_2":
-                label = shape_2
-            elif self.probe_stream == "cls":
-                raise ValueError("Cannot probe for just one shape in CLS token")
+    def __getitem__(self, idx):
+        im_path = self.im_dict[idx]["image_path"]
+        im = Image.open(im_path)
+        # Labels are counterfactuals
+        label = 1 - self.im_dict[idx]["label"]
 
-        if self.probe_value == "color":
-            if self.probe_stream == "stream_1":
-                label = color_1
-            elif self.probe_stream == "stream_2":
-                label = color_2
-            elif self.probe_stream == "cls":
-                raise ValueError("Cannot probe for just one color in CLS token")
+        if self.transform:
+            if (
+                str(type(self.transform))
+                == "<class 'torchvision.transforms.transforms.Compose'>"
+            ):
+                item = self.transform(im)
+                item = {"pixel_values": item, "label": label}
+            else:
+                if (
+                    str(type(self.transform))
+                    == "<class 'transformers.models.clip.processing_clip.CLIPProcessor'>"
+                ):
+                    item = self.transform(images=im, return_tensors="pt")
+                else:
+                    item = self.transform.preprocess(
+                        np.array(im, dtype=np.float32), return_tensors="pt"
+                    )
+                item["label"] = label
+                item["pixel_values"] = item["pixel_values"].squeeze(0)
 
-        if self.probe_value == "class":
-            label = self.im_dict[idx]["label"]
+        if self.im_dict[idx]["shape_1"] == self.im_dict[idx]["shape_2"] and self.im_dict[idx]["color_1"] == self.im_dict[idx]["color_2"]:
+            intermediate_judgement = 1
+        else:
+            intermediate_judgement  = 0    
 
-        # Get the index of the particular combination of shapes (order doesn't matter because streams are arbitrary!)
-        if self.probe_value == "both_shapes":
-            try:
-                label = self.shapeCombo2Label[(shape_1, shape_2)]
-            except:
-                label = self.shapeCombo2Label[(shape_2, shape_1)]
+        if self.im_dict[idx]["display_shape_1"] == self.im_dict[idx]["display_shape_2"] and self.im_dict[idx]["display_color_1"] == self.im_dict[idx]["display_color_2"]:
+            display_intermediate_judgement = 1
+        else:
+            display_intermediate_judgement  = 0      
 
-        if self.probe_value == "both_colors":
-            try:
-                label = self.colorCombo2Label[(color_1, color_2)]
-            except:
-                label = self.colorCombo2Label[(color_2, color_1)]
+        item["pair_label"] = intermediate_judgement
+        item["display_label"] = display_intermediate_judgement
 
-        item = {"embeddings": embedding, "labels": label}
+        item["pair_pos"] = self.im_dict[idx]["stream_1"] + self.im_dict[idx]["stream_2"]
+        item["display_pos"] = self.im_dict[idx]["display_stream_1"] + self.im_dict[idx]["display_stream_2"]
+
         return item
-
+    
 
 class SameDifferentDataset(Dataset):
     """Dataset object for same different judgements"""
@@ -240,10 +323,13 @@ class SameDifferentDataset(Dataset):
         root_dir,
         subset=None,
         transform=None,
+        task="discrimination",
+        size=-1
     ):
         self.root_dir = root_dir
-        self.im_dict = load_dataset(root_dir, subset=subset)
+        self.im_dict = load_dataset(root_dir, subset=subset, size=size, task=task)
         self.transform = transform
+        self.task = task
 
     def __len__(self):
         return len(list(self.im_dict.keys()))
@@ -280,6 +366,16 @@ class SameDifferentDataset(Dataset):
         item["shape_2"] = int(self.im_dict[idx]["shape_2"])
         item["color_1"] = self.im_dict[idx]["color_1"]
         item["color_2"] = self.im_dict[idx]["color_2"]
+
+        if self.task == "rmts":
+            item["display_stream_1"] = self.im_dict[idx]["display_stream_1"]
+            item["display_stream_2"] = self.im_dict[idx]["display_stream_2"]
+            item["display_shape_1"] = int(self.im_dict[idx]["display_shape_1"])
+            item["display_shape_2"] = int(self.im_dict[idx]["display_shape_2"])
+            item["display_color_1"] = self.im_dict[idx]["display_color_1"]
+            item["display_color_2"] = self.im_dict[idx]["display_color_2"]
+            item["pair_pos"] = self.im_dict[idx]["stream_1"] + self.im_dict[idx]["stream_2"]
+            item["display_pos"] = self.im_dict[idx]["display_stream_1"] + self.im_dict[idx]["display_stream_2"]
 
         return item, im_path
 
