@@ -599,33 +599,17 @@ def generate_pairs(objects, n, possible_coords, patch_size=16, obj_size=32, matc
                         copy.deepcopy(all_different_pairs[pair])
                     )
 
-            if old_shape != match_shape:  # Different shapes objs
-                # Add same color pair to all_different_shape_pairs, with same coords and and index as all_different pair
-                if tuple(same_color_pair) in all_different_shape_pairs.keys():
-                    all_different_shape_pairs[tuple(same_color_pair)]["coords"].append(
-                        all_different_pairs[pair]["coords"][0]
-                    )
-                    all_different_shape_pairs[tuple(same_color_pair)]["idx"].append(
-                        all_different_pairs[pair]["idx"][0]
-                    )
-                else:
-                    all_different_shape_pairs[tuple(same_color_pair)] = (
-                        copy.deepcopy(all_different_pairs[pair])
-                    )
-
-            if old_color != match_color:  # Different color objs
-                # Add same shape pair to all_different_color_pairs, with same coords and and index as all_different pair
-                if tuple(same_shape_pair) in all_different_color_pairs.keys():
-                    all_different_color_pairs[tuple(same_shape_pair)]["coords"].append(
-                        all_different_pairs[pair]["coords"][0]
-                    )
-                    all_different_color_pairs[tuple(same_shape_pair)]["idx"].append(
-                        all_different_pairs[pair]["idx"][0]
-                    )
-                else:
-                    all_different_color_pairs[tuple(same_shape_pair)] = (
-                        copy.deepcopy(all_different_pairs[pair])
-                    )
+    for pair in all_different_pairs.keys():
+        obj1_shape = pair[0].split("_")[0]
+        obj1_color = pair[0].split("_")[1]
+        
+        obj2_shape = pair[1].split("_")[0]
+        obj2_color = pair[1].split("_")[1]
+        
+        if obj1_shape == obj2_shape:
+            all_different_color_pairs[pair] = copy.deepcopy(all_different_pairs[pair])
+        elif obj1_color == obj2_color:
+            all_different_shape_pairs[pair] = copy.deepcopy(all_different_pairs[pair])
                     
     if match_to_sample:
         '''
@@ -1190,6 +1174,25 @@ def create_source(
                 base.convert("RGB").save(f"{stim_dir}/{shape_name}_{color_name}.png")
 
 
+def create_object(shape, color, position, coords, obj_size, buffer_factor):
+    x = coords[position[0]]
+    y = coords[position[1]]
+
+    path = f"{shape}_{color}.png"
+    im = Image.open(f"stimuli/source/NOISE_RGB/{obj_size}/{path}").convert("RGB")
+    im = im.resize(
+        (
+            obj_size - (obj_size // buffer_factor),
+            obj_size - (obj_size // buffer_factor),
+        ),
+        Image.NEAREST,
+    )
+    create_noise_image(path, im)
+    box = [
+            coord + random.randint(0, obj_size // buffer_factor) for coord in [x, y]
+        ]
+    return im, box
+
 def create_particular_stimulus(
     shape_1,
     shape_2,
@@ -1197,6 +1200,12 @@ def create_particular_stimulus(
     color_2,
     position_1,
     position_2,
+    display_shape_1=None,
+    display_shape_2=None,
+    display_color_1=None,
+    display_color_2=None,
+    display_position_1=None,
+    display_position_2=None,
     buffer_factor=8,
     im_size=224,
     patch_size=16,
@@ -1209,206 +1218,27 @@ def create_particular_stimulus(
         0, im_size, num=(im_size // patch_size), endpoint=False, dtype=int
     )
 
-    x_1 = coords[position_1[0]]
-    y_1 = coords[position_1[1]]
-    x_2 = coords[position_2[0]]
-    y_2 = coords[position_2[1]]
-
-    path1 = f"{shape_1}_{color_1}.png"
-    path2 = f"{shape_2}_{color_2}.png"
-
-    im1 = Image.open(f"stimuli/source/NOISE_RGB/{obj_size}/{path1}").convert("RGB")
-    im1 = im1.resize(
-        (
-            obj_size - (obj_size // buffer_factor),
-            obj_size - (obj_size // buffer_factor),
-        ),
-        Image.NEAREST,
-    )
-
-    im2 = Image.open(f"stimuli/source/NOISE_RGB/{obj_size}/{path2}").convert("RGB")
-    im2 = im2.resize(
-        (
-            obj_size - (obj_size // buffer_factor),
-            obj_size - (obj_size // buffer_factor),
-        ),
-        Image.NEAREST,
-    )
-
-    # Sample noise
-    create_noise_image(path1, im1)
-    create_noise_image(path2, im2)
+    im1, box1 = create_object(shape_1, color_1, position_1, coords, obj_size, buffer_factor)
+    im2, box2 = create_object(shape_2, color_2, position_2, coords, obj_size, buffer_factor)
 
     # Create blank image and paste objects
     base = Image.new("RGB", (im_size, im_size), (255, 255, 255))
 
-    box1 = [
-        coord + random.randint(0, obj_size // buffer_factor) for coord in [x_1, y_1]
-    ]
     base.paste(im1, box=box1)
-
-    box2 = [
-        coord + random.randint(0, obj_size // buffer_factor) for coord in [x_2, y_2]
-    ]
     base.paste(im2, box=box2)
+
+    # Handle RMTS images
+    if display_position_1 != None:
+        disp_im1, disp_box1 = create_object(display_shape_1, display_color_1, display_position_1, coords, obj_size, buffer_factor)
+        disp_im2, disp_box2 = create_object(display_shape_2, display_color_2, display_position_2, coords, obj_size, buffer_factor)
+   
+        base.paste(disp_im1, box=disp_box1)
+        base.paste(disp_im2, box=disp_box2)
 
     return base
 
 
-def create_subspace_datasets(
-    patch_size=32,
-    obj_size=32,
-    mode="val",
-    analysis="color",
-    split_channels=True,
-    compositional=-1,
-    samples=200,
-):
-    num_patch = 224 // patch_size
-
-    if analysis == "shape":
-        other_feat_str = "color"
-    else:
-        other_feat_str = "shape"
-
-    if compositional > 0:
-        train_str = (
-            f"trainsize_6400_{compositional}-{compositional}-{256 - compositional}"
-        )
-    else:
-        train_str = "trainsize_6400_256-256-256"
-
-    subspace_imgs_path = os.path.join(
-        "stimuli", "subspace", train_str, f"{analysis}_{obj_size}"
-    )
-    os.makedirs(
-        subspace_imgs_path,
-        exist_ok=True,
-    )
-
-    all_ims = glob.glob(f"stimuli/source/NOISE_RGB/{obj_size}/*.png")
-    all_ims = [im.split("/")[-1][:-4].split("_") for im in all_ims]
-    all_ims = [
-        [im[0], f"{im[1]}_{im[2]}"] for im in all_ims
-    ]  # all_ims is a list of (shape, color) tuples
-    shapes = set([im[0] for im in all_ims])
-    colors = set([im[1] for im in all_ims])
-    feature_dict = {"shape": sorted(list(shapes)), "color": sorted(list(colors))}
-
-    stim_dir = f"stimuli/NOISE_RGB/aligned/N_{obj_size}/{train_str}"
-    base_imfiles = glob.glob(f"{stim_dir}/{mode}/different-{analysis}/*.png")
-    stim_dict = pkl.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
-
-    random.shuffle(base_imfiles)
-    base_imfiles = base_imfiles[:samples]
-
-    for base in base_imfiles:
-        print(base)
-        im = Image.open(base)
-        base_path = os.path.join(*base.split("/")[-3:])
-        base_idx = base.split("/")[-1][:-4]
-        datadict = {}
-
-        base_dir = os.path.join(subspace_imgs_path, mode, f"set_{base_idx}")
-        os.makedirs(base_dir, exist_ok=True)
-
-        same_stim = stim_dict[f"{mode}/same/{base_idx}.png"]
-        diff_stim = stim_dict[base_path]
-        datadict["base.png"] = diff_stim.copy()
-        datadict["same.png"] = same_stim.copy()
-
-        try:
-            datadict["base.png"].pop("sd-label")
-        except KeyError:
-            pass
-
-        try:
-            datadict["same.png"].pop("sd-label")
-        except KeyError:
-            pass
-
-        shutil.copy(base, f"{base_dir}/base.png")
-        shutil.copy(f"{stim_dir}/{mode}/same/{base_idx}.png", f"{base_dir}/same.png")
-
-        print(same_stim)
-        print(diff_stim)
-        if (
-            same_stim[f"{analysis[0]}1"] != diff_stim[f"{analysis[0]}1"]
-        ):  # Which object in the image is the edited one?
-            edited_idx = 1
-            not_edited_idx = 2
-        else:
-            edited_idx = 2
-            not_edited_idx = 1
-        print(edited_idx)
-        print(not_edited_idx)
-
-        # For each color/shape present in the "different" stimulus, create versions with every shape/color
-        feature0 = diff_stim[f"{analysis[0]}{edited_idx}"]
-        feature1 = same_stim[f"{analysis[0]}1"]
-
-        for feature, feature_str in zip(
-            [feature0, feature1], [f"{analysis}0", f"{analysis}1"]
-        ):
-            other_idx = 0
-
-            for other_feat in feature_dict[other_feat_str]:
-                other_2 = diff_stim[f"{other_feat_str[0]}{not_edited_idx}"]
-                feat_2 = diff_stim[f"{analysis[0]}{not_edited_idx}"]
-                position_2 = diff_stim[f"pos{not_edited_idx}"]
-
-                other_1 = other_feat
-                feat_1 = feature
-                position_1 = diff_stim[f"pos{edited_idx}"]
-
-                if analysis == "color":
-                    dict_str = f"{feature_str}_shape{other_idx}.png"
-                else:
-                    dict_str = f"{feature_str}_color{other_idx}.png"
-
-                datadict[dict_str] = {
-                    "pos1": position_1,
-                    f"{analysis[0]}1": feat_1,
-                    f"{other_feat_str[0]}1": other_1,
-                    "pos2": position_2,
-                    f"{analysis[0]}2": feat_2,
-                    f"{other_feat_str[0]}2": other_2,
-                }
-
-                position_1 = [position_1[0] % num_patch, position_1[0] // num_patch]
-                position_2 = [position_2[0] % num_patch, position_2[0] // num_patch]
-
-                if analysis == "color":
-                    im = create_particular_stimulus(
-                        other_1, 
-                        other_2, 
-                        feat_1, 
-                        feat_2, 
-                        position_1, 
-                        position_2, 
-                        patch_size=patch_size,
-                        obj_size=obj_size,
-                    )
-                else:
-                    im = create_particular_stimulus(
-                        feat_1, 
-                        feat_2, 
-                        other_1, 
-                        other_2, 
-                        position_1, 
-                        position_2, 
-                        patch_size=patch_size,
-                        obj_size=obj_size,
-                    )
-
-                im.save(f"{base_dir}/{dict_str}")
-                other_idx += 1
-
-        with open(f"{base_dir}/datadict.pkl", "wb") as handle:
-            pkl.dump(datadict, handle, protocol=pkl.HIGHEST_PROTOCOL)
-
-
-def create_das_datasets(
+def create_discrimination_das_datasets(
     source="NOISE_RGB",
     patch_size=16,
     obj_size=32,
@@ -1432,7 +1262,7 @@ def create_das_datasets(
         train_str = "trainsize_6400_256-256-256"
 
     subspace_imgs_path = os.path.join(
-        "stimuli", "das", train_str, f"{analysis}_{obj_size}"
+        "stimuli", "das", "discrimination", train_str, f"{analysis}_{obj_size}"
     )
 
     datadict = {}
@@ -1449,7 +1279,6 @@ def create_das_datasets(
     shapes = set([im[0] for im in all_ims])
     colors = set([im[1] for im in all_ims])
     feature_dict = {"shape": sorted(list(shapes)), "color": sorted(list(colors))}
-
 
     # Create different-to-same pairs
     stim_dir = f"stimuli/{source}/aligned/N_{obj_size}/{train_str}"
@@ -1712,18 +1541,218 @@ def create_das_datasets(
         pkl.dump(datadict, handle, protocol=pkl.HIGHEST_PROTOCOL)
 
 
+def create_rmts_das_datasets(
+    patch_size=16,
+    obj_size=32,
+    mode="val",
+    analysis="color",
+    compositional=-1,
+    samples=2500,
+):
+    num_patch = 224 // patch_size
+
+    if analysis == "shape":
+        other_feat_str = "color"
+    else:
+        other_feat_str = "shape"
+
+    if compositional > 0:
+        train_str = (
+            f"trainsize_6400_{compositional}-{compositional}-{256 - compositional}"
+        )
+    else:
+        train_str = "trainsize_6400_256-256-256"
+
+    subspace_imgs_path = os.path.join(
+        "stimuli", "das", "rmts", train_str, f"{analysis}_{obj_size}"
+    )
+
+    datadict = {}
+
+    os.makedirs(
+        subspace_imgs_path,
+        exist_ok=True,
+    )
+
+    all_ims = glob.glob(f"stimuli/source/NOISE_RGB/{obj_size}/*.png")
+    all_ims = [im.split("/")[-1][:-4].split("_") for im in all_ims]
+    all_ims = [
+        [im[0], f"{im[1]}_{im[2]}"] for im in all_ims
+    ]  # all_ims is a list of (shape, color) tuples
+    shapes = set([im[0] for im in all_ims])
+    colors = set([im[1] for im in all_ims])
+    feature_dict = {"shape": sorted(list(shapes)), "color": sorted(list(colors))}
+
+    stim_dir = f"stimuli/mts/aligned/N_{obj_size}/{train_str}"
+    stim_dict = pkl.load(open(f"{stim_dir}/{mode}/datadict.pkl", "rb"))
+
+    im_paths = list(stim_dict.keys())
+    random.shuffle(im_paths)
+
+    # See if either the display or object pair 1) differ by only the analyzed feature
+    # or 2) are the same
+    #
+    # Randomly select one pair that meets either criterion
+    #
+    # Generate a counterfactual image to change the overall label
+
+    analyzed_prefix = analysis[0]
+    other_prefix = other_feat_str[0]
+
+    sample_count = 0 
+    for im_path in im_paths:
+        image_dict = stim_dict[im_path]
+
+        analyzed_sample_bool = image_dict[f"{analyzed_prefix}1"] == image_dict[f"{analyzed_prefix}2"]
+        analyzed_display_bool = image_dict[f"display1-{analyzed_prefix}"] == image_dict[f"display2-{analyzed_prefix}"]
+
+        other_sample_bool = image_dict[f"{other_prefix}1"] == image_dict[f"{other_prefix}2"]
+        other_display_bool = image_dict[f"display1-{other_prefix}"] == image_dict[f"display2-{other_prefix}"]
+
+        options = []
+        if analyzed_sample_bool and other_sample_bool:
+            # Same: Create a CF for Different
+            options.append("Same-Sample")
+        if analyzed_display_bool and other_display_bool:
+            # Same: Create a CF for Different
+            options.append("Same-Display")
+        if (not analyzed_sample_bool) and other_sample_bool:
+            # Different: Create a CF for Same
+            options.append("Different-Sample")
+        if (not analyzed_display_bool) and other_display_bool:
+            # Different: Create a CF for Same
+            options.append("Different-Display")
+        
+        if len(options) > 0:
+            cf_type = np.random.choice(options)
+
+            idx = im_path.split("/")[-1][:-4]
+            base_dir = os.path.join(
+                subspace_imgs_path, mode, f"set_{idx}"
+            )
+            os.makedirs(base_dir, exist_ok=True)
+
+            base_path = os.path.join(stim_dir, im_path)
+            
+            shutil.copy(base_path, f"{base_dir}/base.png")
+
+            im, cf_dict = generate_rmts_counterfactual(im_path, image_dict, cf_type, analysis, feature_dict, num_patch, patch_size, obj_size)
+            
+            datadict[f"set_{idx}"] = cf_dict
+            im.save(f"{base_dir}/counterfactual.png")
+
+            sample_count += 1
+            if sample_count > samples:
+                break
+    
+    with open(f"{subspace_imgs_path}/{mode}/datadict.pkl", "wb") as handle:
+        pkl.dump(datadict, handle, protocol=pkl.HIGHEST_PROTOCOL)
+
+
+def generate_rmts_counterfactual(path, im_dict, cf_type, analyzed_feature, feature_dict, num_patch, patch_size, obj_size):
+        
+        idxs = list(range(1, 3))
+        np.random.shuffle(idxs)
+        obj_idx = idxs[0]
+        other_idx = idxs[1]
+
+        if cf_type == "Same-Sample":
+            # Sample a different analyzed feature for a display object to use as source
+            to_exclude = im_dict[f"{analyzed_feature[0]}{obj_idx}"]
+            im_dict[f"display{obj_idx}-{analyzed_feature[0]}"] = np.random.choice(
+                list(
+                    set(feature_dict[analyzed_feature])
+                    - set([to_exclude])
+                )
+            )   
+            cf_dict =  {
+                "edited_pos": im_dict[f"pos{obj_idx}"],
+                "non_edited_pos": im_dict[f"pos{other_idx}"],
+                "cf_pos": im_dict[f"display{obj_idx}-pos"],
+                "cf_other_object_pos": im_dict[f"display{other_idx}-pos"],
+                "label": 1 - im_dict["sd-label"]
+            }
+        elif cf_type == "Same-Display":
+            # Sample a different analyzed feature for a sample object to use as source
+            to_exclude = im_dict[f"display{obj_idx}-{analyzed_feature[0]}"]
+            im_dict[f"{analyzed_feature[0]}{obj_idx}"] = np.random.choice(
+                list(
+                    set(feature_dict[analyzed_feature])
+                    - set([to_exclude])
+                )
+            )
+            cf_dict =  {
+                "edited_pos": im_dict[f"display{obj_idx}-pos"],
+                "non_edited_pos": im_dict[f"display{other_idx}-pos"],
+                "cf_pos": im_dict[f"pos{obj_idx}"],
+                "cf_other_object_pos": im_dict[f"pos{other_idx}"],
+                "label": 1 - im_dict["sd-label"]
+            }         
+        elif cf_type == "Different-Sample":
+            # Assign analyzed feature to a display object to use as source
+            im_dict[f"display{obj_idx}-{analyzed_feature[0]}"] = im_dict[f"{analyzed_feature[0]}{other_idx}"]
+            cf_dict =  {
+                "edited_pos": im_dict[f"pos{obj_idx}"],
+                "non_edited_pos": im_dict[f"pos{other_idx}"],
+                "cf_pos": im_dict[f"display{obj_idx}-pos"],
+                "cf_other_object_pos": im_dict[f"display{other_idx}-pos"],
+                "label": 1 - im_dict["sd-label"]
+            }
+        elif cf_type == "Different-Display":
+            # Sample a different analyzed feature for a sample object to use as source
+            im_dict[f"{analyzed_feature[0]}{obj_idx}"] = im_dict[f"display{other_idx}-{analyzed_feature[0]}"]
+            cf_dict =  {
+                "edited_pos": im_dict[f"display{obj_idx}-pos"],
+                "non_edited_pos": im_dict[f"display{other_idx}-pos"],
+                "cf_pos": im_dict[f"pos{obj_idx}"],
+                "cf_other_object_pos": im_dict[f"pos{other_idx}"],
+                "label": 1 - im_dict["sd-label"]
+            }  
+        else:
+            raise ValueError(f"Unrecognized cf_type: {cf_type}")
+
+        # Get correct coordinates for create_particular_stimulus
+        pos1 = [im_dict["pos1"][0] % num_patch, im_dict["pos1"][0] // num_patch]
+        pos2 = [im_dict["pos2"][0] % num_patch, im_dict["pos2"][0] // num_patch]
+        display1_pos = [im_dict["display1-pos"][0] % num_patch, im_dict["display1-pos"][0] // num_patch]
+        display2_pos = [im_dict["display2-pos"][0] % num_patch, im_dict["display2-pos"][0] // num_patch]
+
+        # Create the stimuli
+
+        im = create_particular_stimulus(
+            im_dict["s1"],
+            im_dict["s2"],
+            im_dict["c1"],
+            im_dict["c2"],
+            pos1,
+            pos2,
+            im_dict["display1-s"],
+            im_dict["display2-s"],
+            im_dict["display1-c"],
+            im_dict["display2-c"],
+            display1_pos,
+            display2_pos,
+            patch_size=patch_size,
+            obj_size=obj_size,
+        )
+
+        return im, cf_dict
+
+
 if __name__ == "__main__":
     """Driver function to create datasets"""
     parser = argparse.ArgumentParser(description="Generate data.")
     args = data_generation_parser(parser)
 
-    if args.create_subspace:
-        create_subspace_datasets(compositional=args.compositional, analysis="color")
-        create_subspace_datasets(compositional=args.compositional, analysis="shape")
-    elif args.create_das:
-        for mode in ["train", "val", "test"]:
-            create_das_datasets(compositional=args.compositional, analysis="color", mode=mode, samples=1500)
-            create_das_datasets(compositional=args.compositional, analysis="shape", mode=mode, samples=1500)
+    if args.create_das:
+        if args.match_to_sample:
+            for mode in ["train", "val", "test"]:
+                create_rmts_das_datasets(compositional=args.compositional, analysis="color", mode=mode, samples=100)
+                create_rmts_das_datasets(compositional=args.compositional, analysis="shape", mode=mode, samples=100)
+        else:
+            for mode in ["train", "val", "test"]:
+                create_discrimination_das_datasets(compositional=args.compositional, analysis="color", mode=mode, samples=1500)
+                create_discrimination_das_datasets(compositional=args.compositional, analysis="shape", mode=mode, samples=1500)
     elif args.create_source:
         create_source(source=args.source, obj_size=args.obj_size)
     else:  # Create same-different dataset

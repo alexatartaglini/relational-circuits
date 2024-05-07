@@ -36,8 +36,10 @@ class DasDataset(Dataset):
 
     def __init__(self, root_dir, image_processor, device, control=False):
         self.root_dir = root_dir
+        print(self.root_dir)
         self.im_dict = pkl.load(open(os.path.join(root_dir, "datadict.pkl"), "rb"))
         self.image_sets = glob.glob(root_dir + "*set*")
+        print(self.image_sets)
         self.image_processor = image_processor
         self.device = device
         self.control = control
@@ -61,9 +63,11 @@ class DasDataset(Dataset):
         return len(self.image_sets)
 
     def __getitem__(self, idx):
+
         set_path = self.image_sets[idx]
         set_key = set_path.split("/")[-1]
-
+        # print(self.im_dict)
+        # print(set_key)
         if self.control == "random_patch":
             streams = np.random.choice(list(range(1, 197)), size=4)
             cf_streams = np.random.choice(list(range(1, 197)), size=4)
@@ -133,9 +137,9 @@ def das_config(model_type, layer):
     return config
 
 
-def get_data(analysis, image_processor, comp_str, device, control):
+def get_data(analysis, task, image_processor, comp_str, device, control):
     train_data = DasDataset(
-        f"stimuli/das/trainsize_6400_{comp_str}/{analysis}_32/train/",
+        f"stimuli/das/{task}/trainsize_6400_{comp_str}/{analysis}_32/train/",
         image_processor,
         device,
         control=control,
@@ -144,7 +148,7 @@ def get_data(analysis, image_processor, comp_str, device, control):
     trainloader = DataLoader(train_data, batch_size=64, shuffle=True)
 
     test_data = DasDataset(
-        f"stimuli/das/trainsize_6400_{comp_str}/{analysis}_32/val/",
+        f"stimuli/das/{task}/trainsize_6400_{comp_str}/{analysis}_32/val/",
         image_processor,
         device,
         control=control,
@@ -622,7 +626,7 @@ if __name__ == "__main__":
     }
 
     trainloader, valloader, testloader = get_data(
-        analysis, image_processor, comp_str, device, control
+        analysis, task, image_processor, comp_str, device, control
     )
 
     for layer in range(min_layer, max_layer):
