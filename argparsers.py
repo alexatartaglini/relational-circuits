@@ -427,3 +427,50 @@ def das_parser(parser):
     )
     args = parser.parse_args()
     return args
+
+
+def abstraction_baseline_parser(parser):
+    parser.add_argument(
+        "--pretrain",
+        help="Model to to perform intervention on: scratch, imagenet, clip, dino.",
+        type=str,
+        required=True,
+    )
+    parser.add_argument(
+        "--task",
+        help="discrimination or MTS.",
+        type=str,
+        required=True,
+    )
+    parser.add_argument(
+        "--run_id",
+        default=None,
+        required=False,
+        help="Path to model to run DAS on.",
+    )
+    parser.add_argument(
+        "--patch_size", type=int, default=16, help="Size of patch (eg. 16 or 32)."
+    )
+    parser.add_argument(
+        "--obj_size", type=int, default=32, help="Size of objects (eg. 32 or 64)."
+    )
+    parser.add_argument(
+        "-ds",
+        "--dataset_str",
+        required=False,
+        help="Names of the directory containing stimuli",
+        default="NOISE_RGB",
+    )
+    parser.add_argument(
+        "--compositional",
+        required=False,
+        help="Compositional dataset",
+        default=-1,
+    )
+    parser.add_argument("--num_examples", required=False, default=100, type=int)
+    parser.add_argument(
+        "--analysis",
+        type=str,
+        default="shape",
+        help="Analysis to run (shape or color).",
+    )

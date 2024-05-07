@@ -1636,7 +1636,7 @@ def create_rmts_das_datasets(
             
             shutil.copy(base_path, f"{base_dir}/base.png")
 
-            im, cf_dict = generate_rmts_counterfactual(im_path, image_dict, cf_type, analysis, feature_dict, num_patch, patch_size, obj_size)
+            im, cf_dict = generate_rmts_counterfactual(image_dict, cf_type, analysis, feature_dict, num_patch, patch_size, obj_size)
             
             datadict[f"set_{idx}"] = cf_dict
             im.save(f"{base_dir}/counterfactual.png")
@@ -1649,7 +1649,7 @@ def create_rmts_das_datasets(
         pkl.dump(datadict, handle, protocol=pkl.HIGHEST_PROTOCOL)
 
 
-def generate_rmts_counterfactual(path, im_dict, cf_type, analyzed_feature, feature_dict, num_patch, patch_size, obj_size):
+def generate_rmts_counterfactual(im_dict, cf_type, analyzed_feature, feature_dict, num_patch, patch_size, obj_size):
         
         idxs = list(range(1, 3))
         np.random.shuffle(idxs)
@@ -1670,7 +1670,8 @@ def generate_rmts_counterfactual(path, im_dict, cf_type, analyzed_feature, featu
                 "non_edited_pos": im_dict[f"pos{other_idx}"],
                 "cf_pos": im_dict[f"display{obj_idx}-pos"],
                 "cf_other_object_pos": im_dict[f"display{other_idx}-pos"],
-                "label": 1 - im_dict["sd-label"]
+                "label": 1 - im_dict["sd-label"],
+                "intermediate_judgement": 1,
             }
         elif cf_type == "Same-Display":
             # Sample a different analyzed feature for a sample object to use as source
@@ -1686,7 +1687,8 @@ def generate_rmts_counterfactual(path, im_dict, cf_type, analyzed_feature, featu
                 "non_edited_pos": im_dict[f"display{other_idx}-pos"],
                 "cf_pos": im_dict[f"pos{obj_idx}"],
                 "cf_other_object_pos": im_dict[f"pos{other_idx}"],
-                "label": 1 - im_dict["sd-label"]
+                "label": 1 - im_dict["sd-label"],
+                "intermediate_judgement": 1,
             }         
         elif cf_type == "Different-Sample":
             # Assign analyzed feature to a display object to use as source
@@ -1696,7 +1698,8 @@ def generate_rmts_counterfactual(path, im_dict, cf_type, analyzed_feature, featu
                 "non_edited_pos": im_dict[f"pos{other_idx}"],
                 "cf_pos": im_dict[f"display{obj_idx}-pos"],
                 "cf_other_object_pos": im_dict[f"display{other_idx}-pos"],
-                "label": 1 - im_dict["sd-label"]
+                "label": 1 - im_dict["sd-label"],
+                "intermediate_judgement": 0,
             }
         elif cf_type == "Different-Display":
             # Sample a different analyzed feature for a sample object to use as source
@@ -1706,7 +1709,8 @@ def generate_rmts_counterfactual(path, im_dict, cf_type, analyzed_feature, featu
                 "non_edited_pos": im_dict[f"display{other_idx}-pos"],
                 "cf_pos": im_dict[f"pos{obj_idx}"],
                 "cf_other_object_pos": im_dict[f"pos{other_idx}"],
-                "label": 1 - im_dict["sd-label"]
+                "label": 1 - im_dict["sd-label"],
+                "intermediate_judgement": 0,
             }  
         else:
             raise ValueError(f"Unrecognized cf_type: {cf_type}")

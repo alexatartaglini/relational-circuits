@@ -81,7 +81,10 @@ class DasDataset(Dataset):
         fixed_object_streams = np.array(self.im_dict[set_key]["non_edited_pos"]) + 1
 
         label = self.im_dict[set_key]["label"]
-
+        try:
+            intermediate_judgement = self.im_dict[set_key]["intermediate_judgement"]
+        except:
+            intermediate_judgement = -1
         base = self.preprocess(Image.open(os.path.join(set_path, "base.png")))
         source = self.preprocess(
             Image.open(os.path.join(set_path, "counterfactual.png"))
@@ -91,6 +94,7 @@ class DasDataset(Dataset):
             "base": base,
             "source": source,
             "labels": label,
+            "intermediate_judgement": intermediate_judgement,
             "streams": streams,
             "cf_streams": cf_streams,
             "fixed_object_streams": fixed_object_streams,
@@ -299,8 +303,6 @@ def evaluation(
                 if v is not None and isinstance(v, torch.Tensor):
                     inputs[k] = v.to(device)
 
-            # CHANGED
-
             _, counterfactual_outputs = intervenable(
                 {"pixel_values": inputs["base"]},
                 [{"pixel_values": inputs["source"]}],
@@ -319,9 +321,11 @@ def evaluation(
                 eval_preds += [counterfactual_outputs.logits]
             labels += inputs["labels"]
     eval_metrics = compute_metrics(eval_preds, labels, criterion, device=device)
+
+    embeds = {}
     if save_embeds:
         for k, v in intervenable.interventions.items():
-            embeds = v[0].saved_embeds
+            embeds[k] = v[0].saved_embeds
             v[0].clear_saved_embeds()
             v[0].set_save_embeds(False)
         return eval_metrics, embeds
@@ -329,7 +333,7 @@ def evaluation(
     return eval_metrics
 
 
-def run_abstraction(model, testloader, abstract_vector_function, criterion, clip=False):
+def run_abstraction(model, testloader, abstract_vector_functions, criterion, associated_keys, task, clip=False):
 
     eval_preds = []
     all_labels = []
@@ -345,30 +349,49 @@ def run_abstraction(model, testloader, abstract_vector_function, criterion, clip
             labels = inputs["labels"]
             all_labels += labels
 
-            vector_1 = abstract_vector_function().to("cuda")
-            vector_2 = abstract_vector_function().to("cuda")
+            # Set abstract_vectors for each intervention
+            for key, associated_key in associated_keys.items():
+                vector_1 = abstract_vector_functions[key]().to("cuda")
+                vector_2 = abstract_vector_functions[key]().to("cuda")
 
-            abstract_vectors_1 = []
-            abstract_vectors_2 = []
+                # Abstract vectors for one object
+                abstract_vectors_1 = []
+                # Abstract vectors for the other object
+                abstract_vectors_2 = []
 
-            # If counterfactual label is "same", replace with two equal abstract vectors
-            # Else, replace with two different abstract vectors
-            for label in labels:
-                if label == 1:
-                    abstract_vectors_1.append(vector_1)
-                    abstract_vectors_2.append(vector_1)
-                else:
-                    abstract_vectors_1.append(vector_1)
-                    abstract_vectors_2.append(vector_2)
+                # If counterfactual label is "same", replace with two equal abstract vectors
+                # Else, replace with two different abstract vectors
+                if task == "discrimination":
+                    # Labels are counterfactual
+                    for label in labels:
+                        if label == 1:
+                            # Turn different to same
+                            abstract_vectors_1.append(vector_1)
+                            abstract_vectors_2.append(vector_1)
+                        else:
+                            # Turn same to different
+                            abstract_vectors_1.append(vector_1)
+                            abstract_vectors_2.append(vector_2)
+                if task == "rmts":
+                    # Intermediate Judgements are not counterfactual
+                    intermediate_judgements = inputs["intermediate_judgements"]
+                    for intermediate_judgement in intermediate_judgements:
+                        if intermediate_judgement == 1:
+                            # Turn same to different for one pair
+                            abstract_vectors_1.append(vector_1)
+                            abstract_vectors_2.append(vector_2)
+                        else:
+                            # Turn different to same for one pair
+                            abstract_vectors_1.append(vector_1)
+                            abstract_vectors_2.append(vector_1)
 
-            # Create a batch of abstract vectors
-            keys = list(model.interventions.keys())
-            model.interventions[keys[0]][0].set_abstraction_test(
-                True, torch.stack(abstract_vectors_1)
-            )
-            model.interventions[keys[1]][0].set_abstraction_test(
-                True, torch.stack(abstract_vectors_2)
-            )
+                # Create a batch of abstract vectors
+                model.interventions[key][0].set_abstraction_test(
+                    True, torch.stack(abstract_vectors_1)
+                )
+                model.interventions[associated_key][0].set_abstraction_test(
+                    True, torch.stack(abstract_vectors_2)
+                )
 
             # For abstraction test, inject a random vector
             # into both the subspaces for fixed and edited objects
@@ -411,14 +434,14 @@ def run_abstraction(model, testloader, abstract_vector_function, criterion, clip
 
 
 def abstraction_eval(
-    model, interventions, testloader, criterion, layer, embeds, device=None, clip=False
+    model, interventions, testloader, criterion, layer, embeds, task, device=None, clip=False
 ):
     if device is None:
         device = torch.device("cuda")
 
-    embeds = torch.concat(embeds, dim=0)
-    means = torch.mean(embeds, dim=0)
-    stds = torch.std(embeds, dim=0)
+    embeds = {k: torch.concat(v, dim=0) for k, v in embeds.items()}
+    means = {k: torch.mean(v, dim=0) for k, v in embeds.items()}
+    stds = {k: torch.std(v, dim=0) for k, v in embeds.items()}
 
     # Set up a parallel intervention model
     parallel_config = IntervenableConfig(
@@ -482,6 +505,8 @@ def abstraction_eval(
     intervenable.set_device(device)
     intervenable.disable_model_gradients()
 
+    associated_keys = {}
+
     # Ensure that interventions on both objects have the same settings as the base interventions
     for i in range(4):
         key1 = f"layer.0.comp.block_output.unit.pos.nunit.1#{i}"
@@ -501,29 +526,43 @@ def abstraction_eval(
         intervenable.interventions[key2][0].temperature = interventions[key1][
             0
         ].temperature
+        associated_keys[key1] = key2
 
     # Eval with sampled IID random vectors
-    abstract_vector_function = partial(torch.normal, mean=means, std=stds)
+    abstract_vector_functions = {
+        k: partial(torch.normal, mean=means[k], std=stds[k]) for k, _ in embeds.items()
+    }
     eval_sampled_metrics = run_abstraction(
-        intervenable, testloader, abstract_vector_function, criterion, clip=clip
+        intervenable, testloader, abstract_vector_functions, criterion, associated_keys, task, clip=clip
     )
 
     # Eval with more random gaussian vectors
-    abstract_vector_function = partial(
-        torch.normal, mean=torch.zeros(means.shape), std=torch.ones(stds.shape)
-    )
+    abstract_vector_functions = {
+        k: partial(
+            torch.normal,
+            mean=torch.zeros(means[k].shape),
+            std=torch.ones(stds[k].shape),
+        )
+        for k, _ in embeds.items()
+    }
     fully_random_metrics = run_abstraction(
-        intervenable, testloader, abstract_vector_function, criterion, clip=clip
+        intervenable, testloader, abstract_vector_functions, criterion, associated_keys, task, clip=clip
     )
 
     # Eval with interpolated vectors
-    def interpolate():
-        choices = np.random.choice(range(len(embeds)), size=2)
-        return (embeds[choices[0]] * 0.5) + (embeds[choices[1]] * 0.5)
+    def interpolate(embs):
+        choices = np.random.choice(range(len(embs)), size=2)
+        return (embs[choices[0]] * 0.5) + (embs[choices[1]] * 0.5)
 
-    abstract_vector_function = interpolate
+    abstract_vector_functions = {
+        k: partial(
+            interpolate,
+            embs=v,
+        )
+        for k, v in embeds.items()
+    }
     interpolated_metrics = run_abstraction(
-        intervenable, testloader, abstract_vector_function, criterion, clip=clip
+        intervenable, testloader, abstract_vector_functions, criterion, associated_keys, task, clip=clip
     )
 
     return eval_sampled_metrics, fully_random_metrics, interpolated_metrics
@@ -706,6 +745,7 @@ if __name__ == "__main__":
             criterion,
             layer,
             embeds,
+            task,
             clip=pretrain == "clip",
         )
 

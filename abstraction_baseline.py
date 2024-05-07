@@ -1,205 +1,251 @@
-import random
 import os
-import pickle as pkl
 import numpy as np
-from PIL import Image
 import torch
 from functools import partial
-import glob
 from collections import defaultdict
-from transformers import (
-    ViTForImageClassification,
-    AutoImageProcessor,
-)
-import seaborn as sns
-import matplotlib.pyplot as plt
+import pandas as pd
+import argparse
 import sys
+
+from utils import load_tl_model
+from argparsers import abstraction_baseline_parser
+from torch.nn import CrossEntropyLoss
+
+from das import DasDataset
 
 sys.path.append("./TransformerLens/")
 
 import transformer_lens.utils as utils
-from transformer_lens.loading_from_pretrained import convert_vit_weights
-from transformer_lens.HookedViT import HookedViT
 
 
 def patch_residual_component(
     target_residual_component,
     hook,
-    pos,
-    source_embed,
+    positions,
+    source_embeds,
 ):
-    target_residual_component[:, pos, :] = source_embed
+    target_residual_component[:, positions, :] = source_embeds
     return target_residual_component
 
 
-def load_tl_model(
-    path,
-    model_type="vit",
-    patch_size=32,
-    im_size=224,
+def generate_embeddings(model, test_dataset):
+
+    object_embeds = defaultdict()
+    for data in test_dataset:
+        _, cache = model.run_with_cache(data["base"], remove_batch_dim=True)
+        for layer in range(12):
+            resid = cache["resid_post", layer]
+            # For RMTS these streams will either both be display objects or sample objects
+            object_embeds[layer].append(resid[data["streams"]])
+            object_embeds[layer].append(resid[data["fixed_object_streams"]])
+    return object_embeds
+
+
+def run_abstraction(
+    model,
+    test_dataset,
+    abstract_vector_function,
+    criterion,
+    task,
+    clip=False,
+    device="cuda",
 ):
-    if model_type == "vit":
-        image_processor = AutoImageProcessor.from_pretrained(
-            f"google/vit-base-patch{patch_size}-{im_size}-in21k"
-        )
-        hf_model = ViTForImageClassification.from_pretrained(
-            f"google/vit-base-patch{patch_size}-{im_size}-in21k"
-        ).to(
-            "cuda"
-        )  # HF Model defaults to a 2 output classifier
-        tl_model = HookedViT.from_pretrained(
-            f"google/vit-base-patch{patch_size}-{im_size}-in21k"
-        ).to("cuda")
 
-        hf_model.load_state_dict(torch.load(path))
-        state_dict = convert_vit_weights(hf_model, tl_model.cfg)
-        tl_model.load_state_dict(state_dict, strict=False)
-    return image_processor, tl_model
+    eval_preds = []
+    all_labels = []
+    with torch.no_grad():
+        for idx in range(len(test_dataset)):
+            # Sample vectors
+            inputs = test_dataset[idx]
+            for k, v in inputs.items():
+                if v is not None and isinstance(v, torch.Tensor):
+                    inputs[k] = v.to(device)
 
+            labels = inputs["labels"]
+            all_labels += labels
 
-if __name__ == "__main__":
+            # Get abstract_vectors
+            vector_1 = abstract_vector_function().to("cuda")  # Shape should be (4, 768)
+            vector_2 = abstract_vector_function().to("cuda")
 
-    # @TODO turn these into command line arguments
-    examples = 100
-    model = "scratch"
-    ds = "32"
+            # If counterfactual label is "same", replace with two equal abstract vectors
+            # Else, replace with two different abstract vectors
+            if task == "discrimination":
+                # Labels are counterfactual
+                for label in labels:
+                    if label == 1:
+                        # Turn different to same
+                        obj_1_vectors = vector_1
+                        obj_2_vectors = vector_1
+                    else:
+                        # Turn same to different
+                        obj_1_vectors = vector_1
+                        obj_2_vectors = vector_2
+            if task == "rmts":
+                # Intermediate Judgements are not counterfactual
+                intermediate_judgements = inputs["intermediate_judgements"]
+                for intermediate_judgement in intermediate_judgements:
+                    if intermediate_judgement == 1:
+                        # Turn same to different for one pair
+                        obj_1_vectors = vector_1
+                        obj_2_vectors = vector_2
+                    else:
+                        # Turn different to same for one pair
+                        obj_1_vectors = vector_1
+                        obj_2_vectors = vector_1
 
-    if ds == "256":
-        if model == "scratch":
-            model_path = "./models/scratch/256-256-256_uizlvnej.pth"
-        else:
-            model_path = "./models/imagenet/256-256-256_jqwl3zcy.pth"
-    else:
-        if model == "scratch":
-            model_path = "./models/scratch/32-32-224_sva7zued.pth"
-        else:
-            model_path = "./models/imagenet/32-32-224_ao9dxetb.pth"
-
-    if ds == "32":
-        figpath = f"./analysis/analysis/{model}_32/random_full_embeds.png"
-    else:
-        figpath = f"./analysis/analysis/{model}/random_full_embeds_.png"
-    image_processor, tl_model = load_tl_model(model_path)
-
-    torch.set_grad_enabled(False)
-
-    if ds == "256":
-        data_dir = "./stimuli/NOISE_RGB/aligned/N_32/trainsize_6400_256-256-256/val/"
-    else:
-        data_dir = "./stimuli/NOISE_RGB/aligned/N_32/trainsize_6400_32-32-224/val/"
-
-    different_dataset = glob.glob(f"{data_dir}/different/*.png")
-    random.shuffle(different_dataset)
-    different_dataset = different_dataset[:examples]
-
-    data_dict = pkl.load(open(os.path.join(data_dir, "datadict.pkl"), "rb"))
-
-    different_results = defaultdict(list)
-
-    # For the different dataset, compute embeddings for object at each layer
-    layer_embeds = defaultdict(list)
-
-    for idx, img_path in enumerate(different_dataset):
-        print(idx)
-        # Get positions of each object
-        im_dict = data_dict[os.path.join(*img_path.split("/")[-4:])]
-        pos1 = im_dict["pos1"] + 1
-        pos2 = im_dict["pos2"] + 1
-
-        # First run is averaging the raw pixels
-        # img = np.array(Image.open(img_path))
-        # print(img.shape)
-        # img_tiles = []
-        # for i in range(7):
-        #     for j in range(7):
-        #         img_tiles.append(
-        #             img[
-        #                 i * 32 : (i + 1) * 32,
-        #                 j * 32 : (j + 1) * 32,
-        #             ]
-        #         )
-
-        # avg_emb = (img_tiles[pos1 - 1] * 0.75) + (img_tiles[pos2 - 1] * 0.25)
-        # img_tiles[pos1 - 1] = avg_emb
-        # img_tiles[pos2 - 1] = avg_emb
-        # avg_img = np.random.random(img.shape)
-
-        # for i in range(7):
-        #     for j in range(7):
-        #         avg_img[
-        #             i * 32 : (i + 1) * 32,
-        #             j * 32 : (j + 1) * 32,
-        #         ] = img_tiles[i + (7 * j)]
-
-        # # Image.fromarray(avg_img.astype(np.uint8)).save("out_im.png")
-
-        # avg_img = image_processor.preprocess(
-        #     avg_img.astype(np.uint8), return_tensors="pt"
-        # )["pixel_values"].to("cuda")
-        # logits = tl_model(avg_img)
-        # different_results[-1].append((logits[0][0] < logits[0][1]).cpu())
-
-        img = image_processor.preprocess(
-            np.array(Image.open(img_path), dtype=np.float32),
-            return_tensors="pt",
-        )["pixel_values"].to("cuda")
-        _, cache = tl_model.run_with_cache(img)
-
-        for layer in range(tl_model.cfg.n_layers):
-            emb1 = cache[utils.get_act_name("resid_post", layer)][0][pos1]
-            emb2 = cache[utils.get_act_name("resid_post", layer)][0][pos2]
-            layer_embeds[layer] += [emb1, emb2]
-
-    # Now compute means and stds of each layer
-    layer_means = {}
-    layer_stds = {}
-
-    for layer in range(tl_model.cfg.n_layers):
-        print(torch.stack(layer_embeds[layer]).shape)
-        layer_means[layer] = torch.mean(torch.stack(layer_embeds[layer]), dim=0)
-        layer_stds[layer] = torch.std(torch.stack(layer_embeds[layer]), dim=0)
-    print(layer_means[0].shape)
-
-    # Now iterate again, replacing embeddings with a sampled random embedding
-
-    for idx, img_path in enumerate(different_dataset):
-        print(idx)
-        # Get positions of each object
-        im_dict = data_dict[os.path.join(*img_path.split("/")[-4:])]
-        pos1 = im_dict["pos1"] + 1
-        pos2 = im_dict["pos2"] + 1
-
-        img = image_processor.preprocess(
-            np.array(Image.open(img_path), dtype=np.float32),
-            return_tensors="pt",
-        )["pixel_values"].to("cuda")
-
-        for layer in range(tl_model.cfg.n_layers):
-            emb = torch.normal(layer_means[layer], layer_stds[layer])
-            hook_pos1 = partial(patch_residual_component, pos=pos1, source_embed=emb)
-            hook_pos2 = partial(patch_residual_component, pos=pos2, source_embed=emb)
-            patched_logits = tl_model.run_with_hooks(
-                img,
+            hook_obj1 = partial(
+                patch_residual_component,
+                positions=inputs["streams"],
+                source_embeds=obj_1_vectors,
+            )
+            hook_obj2 = partial(
+                patch_residual_component,
+                positions=inputs["fixed_object_streams"],
+                source_embeds=obj_2_vectors,
+            )
+            patched_logits = model.run_with_hooks(
+                inputs["base"].unsqueeze(0),
                 fwd_hooks=[
-                    (utils.get_act_name("resid_post", layer), hook_pos1),
-                    (utils.get_act_name("resid_post", layer), hook_pos2),
+                    (utils.get_act_name("resid_post", layer), hook_obj1),
+                    (utils.get_act_name("resid_post", layer), hook_obj2),
                 ],
                 return_type="logits",
             )
 
-            different_results[layer].append(
-                (patched_logits[0][0] < patched_logits[0][1]).cpu()
-            )
+            if clip:
+                eval_preds += [patched_logits.image_embeds]
+            else:
+                eval_preds += [patched_logits.logits]
+    return compute_metrics(eval_preds, all_labels, criterion, device=device)
 
-    interpolated_same_accuracy = []
-    for i in range(0, 12):
-        interpolated_same_accuracy.append(np.mean(different_results[i]))
-        print(f"Layer {i}: {np.mean(different_results[i])}")
 
-    ax = sns.barplot(x=list(range(12)), y=interpolated_same_accuracy)
-    ax.set(
-        xlabel="Layers",
-        ylabel="Same Judgement Accuracy",
-        title=f"{model} Random Embeds Accuracy",
-    )
-    plt.savefig(figpath)
+def compute_metrics(eval_preds, labels, criterion, device=None):
+    if device is None:
+        device = torch.device("cuda")
+
+    labels = torch.stack(labels)
+
+    eval_preds = torch.concat(eval_preds, dim=0)
+    pred_test_labels = torch.argmax(eval_preds, dim=-1)
+    correct_labels = pred_test_labels == labels  # Counterfactual labels
+    total_count = len(correct_labels)
+    correct_count = correct_labels.sum().tolist()
+    total_loss = criterion(eval_preds, labels).to(device)
+
+    accuracy = round(correct_count / total_count, 3)
+    loss = round(total_loss.item(), 3)
+    return {"accuracy": accuracy, "loss": loss}
+
+
+if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser()
+    args = abstraction_baseline_parser(parser)
+
+    examples = args.num_examples
+    model = args.pretrain
+    analysis = args.analysis
+    compositional = args.compositional
+    run_id = args.run_id
+    ds = args.ds
+    task = args.task
+    pretrain = args.pretrain
+    obj_size = args.obj_size
+    patch_size = args.patch_size
+
+    if compositional < 0:
+        comp_str = "256-256-256"
+    else:
+        comp_str = f"{compositional}-{compositional}-{256-compositional}"
+
+    model_path = f"./models/{task}/{pretrain}/{ds}_{obj_size}/{comp_str}_{run_id}.pth"
+
+    log_path = f"logs/{pretrain}/{task}/{ds}/aligned/N_{obj_size}/trainsize_6400_{comp_str}/Abstraction_Baseline/{analysis}"
+    os.makedirs(log_path, exist_ok=True)
+
+    image_processor, tl_model = load_tl_model(model_path, pretrain, patch_size)
+
+    torch.set_grad_enabled(False)
+
+    data_dir = f"stimuli/das/{task}/trainsize_6400_{comp_str}/{analysis}_32/test/"
+
+    # Get all 4 embeddings for each object
+    test_data = DasDataset(data_dir, image_processor, device="cuda")
+    embeds = generate_embeddings(tl_model, test_data)
+
+    results = {
+        "layer": [],
+        "sampled_loss": [],
+        "sampled_acc": [],
+        "random_loss": [],
+        "random_acc": [],
+        "interpolated_loss": [],
+        "interpolated_acc": [],
+    }
+
+    criterion = CrossEntropyLoss()
+
+    # Run abstraction analyses with functions generated using these embeddings, similar to DAS
+    for layer in range(12):
+        layer_embeds = embeds[layer]
+        layer_embeds = torch.stack(layer_embeds, dim=0)
+        means = torch.mean(layer_embeds, dim=0)
+        stds = torch.stds(layer_embeds, dim=0)
+
+        # Eval with sampled IID random vectors
+        abstract_vector_function = partial(torch.normal, mean=means, std=stds)
+        sampled_metrics = run_abstraction(
+            tl_model,
+            test_data,
+            abstract_vector_function,
+            criterion,
+            task,
+            clip="clip" in pretrain,
+        )
+
+        # Eval with more random gaussian vectors
+        abstract_vector_function = partial(
+            torch.normal,
+            mean=torch.zeros(means.shape),
+            std=torch.ones(stds.shape),
+        )
+        fully_random_metrics = run_abstraction(
+            tl_model,
+            test_data,
+            abstract_vector_function,
+            criterion,
+            task,
+            clip="clip" in pretrain,
+        )
+
+        # Eval with interpolated vectors
+        def interpolate(embs):
+            choices = np.random.choice(range(len(embs)), size=2)
+            return (embs[choices[0]] * 0.5) + (embs[choices[1]] * 0.5)
+
+        abstract_vector_functions = partial(
+            interpolate,
+            embs=layer_embeds,
+        )
+        interpolated_metrics = run_abstraction(
+            tl_model,
+            test_data,
+            abstract_vector_function,
+            criterion,
+            task,
+            clip="clip" in pretrain,
+        )
+
+        results["layer"].append(layer)
+
+        results["sampled_acc"].append(sampled_metrics["accuracy"])
+        results["sampled_loss"].append(sampled_metrics["loss"])
+
+        results["random_acc"].append(fully_random_metrics["accuracy"])
+        results["random_loss"].append(fully_random_metrics["loss"])
+
+        results["interpolated_acc"].append(interpolated_metrics["accuracy"])
+        results["interpolated_loss"].append(interpolated_metrics["loss"])
+
+        pd.DataFrame.from_dict(results).to_csv(os.path.join(log_path, f"results.csv"))
