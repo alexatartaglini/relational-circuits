@@ -35,7 +35,7 @@ class EarlyStopper:
 
 
 def compute_auxiliary_loss(
-    hidden_states, data, probes, probe_layer, criterion, device="cuda"
+    hidden_states, data, probes, probe_layer, criterion, task, device="cuda"
 ):
     input_embeds = hidden_states[probe_layer]
     hidden_dim = input_embeds.shape[-1]
@@ -43,18 +43,46 @@ def compute_auxiliary_loss(
 
     shape_probe, color_probe = probes
 
-    states_1 = input_embeds[range(len(data["stream_1"])), data["stream_1"]]
-    states_2 = input_embeds[range(len(data["stream_2"])), data["stream_2"]]
+    # get each stream individually: 4 patches per object
+    states_1 = input_embeds[range(len(data["stream_1"])), data["stream_1"]].reshape(
+        batch_size * 4, hidden_dim
+    )
+    states_2 = input_embeds[range(len(data["stream_2"])), data["stream_2"]].reshape(
+        batch_size * 4, hidden_dim
+    )
 
-    shapes_1 = data["shape_1"]
-    shapes_2 = data["shape_2"]
+    shapes_1 = data["shape_1"].repeat_interleave(4)
+    shapes_2 = data["shape_2"].repeat_interleave(4)
 
-    colors_1 = data["color_1"]
-    colors_2 = data["color_2"]
+    colors_1 = data["color_1"].repeat_interleave(4)
+    colors_2 = data["color_2"].repeat_interleave(4)
 
     states = torch.cat((states_1, states_2))
     shapes = torch.cat((shapes_1, shapes_2)).to(device)
     colors = torch.cat((colors_1, colors_2)).to(device)
+
+    # Add RMTS Display objects to train probe
+    if task == "rmts":
+        display_states_1 = input_embeds[
+            range(len(data["display_stream_1"])), data["display_stream_1"]
+        ].reshape(batch_size * 4, hidden_dim)
+        display_states_2 = input_embeds[
+            range(len(data["display_stream_2"])), data["display_stream_2"]
+        ].reshape(batch_size * 4, hidden_dim)
+
+        display_shapes_1 = data["display_shape_1"].repeat_interleave(4)
+        display_shapes_2 = data["display_shape_2"].repeat_interleave(4)
+
+        display_colors_1 = data["display_color_1"].repeat_interleave(4)
+        display_colors_2 = data["display_color_2"].repeat_interleave(4)
+
+        states = torch.cat((states, display_states_1, display_states_2))
+        shapes = torch.cat(
+            (shapes, display_shapes_1.to(device), display_shapes_2.to(device))
+        )
+        colors = torch.cat(
+            (colors, display_colors_1.to(device), display_colors_2.to(device))
+        )
 
     # Run shape probe on half of the embedding, color probe on other half, ensures nonoverlapping subspaces
     shape_outs = shape_probe(states[:, :probe_dim])
@@ -82,6 +110,7 @@ def train_model_epoch(
     device="cuda",
     probes=None,
     probe_layer=None,
+    task="discrimination",
 ):
     """Performs one training epoch
 
@@ -124,7 +153,7 @@ def train_model_epoch(
 
             if args.auxiliary_loss:
                 aux_loss, shape_acc, color_acc = compute_auxiliary_loss(
-                    outputs.hidden_states, d, probes, probe_layer, criterion
+                    outputs.hidden_states, d, probes, probe_layer, criterion, task
                 )
 
                 loss += aux_loss[0]
@@ -170,6 +199,7 @@ def evaluation(
     device="cuda",
     probes=None,
     probe_layer=None,
+    task="discrimination",
 ):
     """Evaluate model on val set
 
@@ -210,7 +240,7 @@ def evaluation(
 
             if args.auxiliary_loss:
                 aux_loss, shape_acc, color_acc = compute_auxiliary_loss(
-                    outputs.hidden_states, d, probes, probe_layer, criterion
+                    outputs.hidden_states, d, probes, probe_layer, criterion, task
                 )
                 loss += aux_loss[0]
                 running_shape_acc_val += shape_acc * inputs.size(0)
@@ -258,6 +288,7 @@ def train_model(
     probes=None,
     probe_layer=None,
     early_stopping=False,
+    task="discrimination",
 ):
     """Main function implementing the training/eval loop
 
@@ -300,6 +331,7 @@ def train_model(
             device=device,
             probes=probes,
             probe_layer=probe_layer,
+            task=task,
         )
 
         metric_dict = {
@@ -334,6 +366,7 @@ def train_model(
             device=device,
             probes=probes,
             probe_layer=probe_layer,
+            task=task,
         )
 
         metric_dict["val_loss"] = result["loss"]
@@ -351,14 +384,16 @@ def train_model(
             device=device,
             probes=probes,
             probe_layer=probe_layer,
+            task=task,
         )
 
         metric_dict["test_loss"] = result["loss"]
         metric_dict["test_acc"] = result["acc"]
         metric_dict["test_roc_auc"] = result["roc_auc"]
-        
+
         for ood_label, ood_dataset, ood_dataloader in zip(
-                ood_labels, ood_datasets, ood_dataloaders):
+            ood_labels, ood_datasets, ood_dataloaders
+        ):
             print(f"\nOOD: {ood_label} \n")
             result = evaluation(
                 args,
@@ -370,6 +405,7 @@ def train_model(
                 device=device,
                 probes=probes,
                 probe_layer=probe_layer,
+                task=task,
             )
 
             metric_dict[f"{ood_label}_loss"] = result["loss"]
@@ -383,11 +419,9 @@ def train_model(
 
         # Log metrics
         wandb.log(metric_dict)
-        
+
         if early_stopping and early_stopper(metric_dict["val_loss"]):
-            torch.save(
-                model.state_dict(), f"{log_dir}/{comp_str}_{wandb.run.id}.pth"
-            )
+            torch.save(model.state_dict(), f"{log_dir}/{comp_str}_{wandb.run.id}.pth")
             return model
 
     return model
@@ -441,18 +475,24 @@ if __name__ == "__main__":
         torch.cuda.manual_seed_all(seed)
         np.random.seed(seed)
 
+    # Set task
+    if "mts" in dataset_str:
+        task = "rmts"
+    else:
+        task = "discrimination"
+
     # Other hyperparameters/variables
     im_size = 224
     decay_rate = 0.95  # scheduler decay rate for Exponential type
     patience = 40  # scheduler patience for ReduceLROnPlateau type
     int_to_label = {0: "different", 1: "same"}
     label_to_int = {"different": 0, "same": 1}
-    
+
     if dataset_str == "NOISE_st" or dataset_str == "NOISE_stc":
         args.texture = True
     else:
         args.texture = False
-        
+
     texture = args.texture
 
     # Check arguments
@@ -500,7 +540,7 @@ if __name__ == "__main__":
     model_string += pretrained_string  # Indicate if model is pretrained
     model_string += "_{0}".format(optim)  # Optimizer string
 
-    #path = os.path.join(model_string, dataset_str)
+    # path = os.path.join(model_string, dataset_str)
 
     # Construct train set + DataLoader
     if compositional > 0:
@@ -514,7 +554,7 @@ if __name__ == "__main__":
         dataset_str,
         f"aligned/N_{obj_size}/trainsize_{n_train}_{comp_str}",
     )
-    
+
     if model_type == "vit":
         if pretrained:
             pretrain_type = "imagenet"
@@ -524,7 +564,7 @@ if __name__ == "__main__":
         pretrain_type = "clip"
     elif model_type == "dino_vit":
         pretrain_type = "dino"
-    
+
     log_dir = f"models/{pretrain_type}/{dataset_str}_{obj_size}"
     os.makedirs(log_dir, exist_ok=True)
 
@@ -554,14 +594,14 @@ if __name__ == "__main__":
         transform=transform,
     )
     test_dataloader = DataLoader(test_dataset, batch_size=512, shuffle=True)
-    
+
     ood_labels = []
     ood_datasets = []
     ood_dataloaders = []
     if ood:
         ood_labels = ["ood-shape", "ood-color", "ood-shape-color"]
         ood_dirs = ["64-64-64", "64-64-64", "16-16-16"]
-        
+
         for ood_label, ood_dir in zip(ood_labels, ood_dirs):
             ood_dir = f"stimuli/NOISE_ood/{ood_label}/aligned/N_{obj_size}/trainsize_6400_{ood_dir}"
             ood_dataset = SameDifferentDataset(
@@ -569,7 +609,7 @@ if __name__ == "__main__":
                 transform=transform,
             )
             ood_dataloader = DataLoader(ood_dataset, batch_size=512, shuffle=True)
-            
+
             ood_datasets.append(ood_dataset)
             ood_dataloaders.append(ood_dataloader)
 
@@ -586,17 +626,23 @@ if __name__ == "__main__":
             labels = [f"{dataset_str}_val", f"{dataset_str}_test"]
             dataloaders = [val_dataloader, test_dataloader]
             datasets = [val_dataset, val_dataloader]
-            
+
         for label, dataloader, dataset in zip(labels, dataloaders, datasets):
-            res = evaluation(args, model, dataloader, dataset, criterion, 0, device=device)
+            res = evaluation(
+                args, model, dataloader, dataset, criterion, 0, task=task, device=device
+            )
             results[label] = {}
             results[label]["loss"] = res["loss"]
             results[label]["acc"] = res["acc"]
             results[label]["roc_auc"] = res["roc_auc"]
-            
-        pd.DataFrame.from_dict(results).to_csv(os.path.join(log_dir, f"{dataset_str}_eval.csv"))
+
+        pd.DataFrame.from_dict(results).to_csv(
+            os.path.join(log_dir, f"{dataset_str}_eval.csv")
+        )
     else:
-        model_params = tuple([param for param in model.parameters() if param.requires_grad])
+        model_params = tuple(
+            [param for param in model.parameters() if param.requires_grad]
+        )
         if args.auxiliary_loss:
             params = (
                 list(model_params)
@@ -605,7 +651,7 @@ if __name__ == "__main__":
             )
         else:
             params = model_params
-    
+
         # Optimizer and scheduler
         if optim == "adamw":
             optimizer = torch.optim.AdamW(params, lr=lr)
@@ -613,16 +659,18 @@ if __name__ == "__main__":
             optimizer = torch.optim.Adam(params, lr=lr)
         elif optim == "sgd":
             optimizer = torch.optim.SGD(params, lr=lr)
-    
+
         if lr_scheduler == "reduce_on_plateau":
             scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
                 optimizer, patience=patience, mode="max"
             )
         elif lr_scheduler == "exponential":
-            scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=decay_rate)
+            scheduler = torch.optim.lr_scheduler.ExponentialLR(
+                optimizer, gamma=decay_rate
+            )
         elif lr_scheduler.lower() == "none":
             scheduler = None
-    
+
         # Information to store
         exp_config = {
             "model_type": model_type,
@@ -639,7 +687,7 @@ if __name__ == "__main__":
             "num_epochs": num_epochs,
             "batch_size": batch_size,
         }
-    
+
         # Initialize Weights & Biases project
         if wandb_entity:
             run = wandb.init(
@@ -656,10 +704,10 @@ if __name__ == "__main__":
                 dir=args.wandb_run_dir,
                 settings=wandb.Settings(start_method="fork"),
             )
-    
+
         run_id = wandb.run.id
         run.name = f"TRAIN_{model_string}_{dataset_str}_LR{lr}_{run_id}"
-    
+
         # Run training loop + evaluations
         model = train_model(
             args,
@@ -680,5 +728,6 @@ if __name__ == "__main__":
             ood_dataloaders=ood_dataloaders,
             probes=probes,
             probe_layer=args.probe_layer,
+            task=task,
         )
         wandb.finish()
