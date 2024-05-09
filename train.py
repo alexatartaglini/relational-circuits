@@ -44,12 +44,14 @@ def compute_auxiliary_loss(
     shape_probe, color_probe = probes
 
     # get each stream individually: 4 patches per object
-    states_1 = input_embeds[range(len(data["stream_1"])), data["stream_1"]].reshape(
-        batch_size * 4, hidden_dim
-    )
-    states_2 = input_embeds[range(len(data["stream_2"])), data["stream_2"]].reshape(
-        batch_size * 4, hidden_dim
-    )
+    states_1 = input_embeds[
+        torch.arange(len(data["stream_1"])).repeat_interleave(4),
+        data["stream_1"].reshape(-1),
+    ]
+    states_2 = input_embeds[
+        torch.arange(len(data["stream_2"])).repeat_interleave(4),
+        data["stream_2"].reshape(-1),
+    ]
 
     shapes_1 = data["shape_1"].repeat_interleave(4)
     shapes_2 = data["shape_2"].repeat_interleave(4)
@@ -64,11 +66,13 @@ def compute_auxiliary_loss(
     # Add RMTS Display objects to train probe
     if task == "rmts":
         display_states_1 = input_embeds[
-            range(len(data["display_stream_1"])), data["display_stream_1"]
-        ].reshape(batch_size * 4, hidden_dim)
+            torch.arange(len(data["display_stream_1"])).repeat_interleave(4),
+            data["display_stream_1"].reshape(-1),
+        ]
         display_states_2 = input_embeds[
-            range(len(data["display_stream_2"])), data["display_stream_2"]
-        ].reshape(batch_size * 4, hidden_dim)
+            torch.arange(len(data["display_stream_2"])).repeat_interleave(4),
+            data["display_stream_2"].reshape(-1),
+        ]
 
         display_shapes_1 = data["display_shape_1"].repeat_interleave(4)
         display_shapes_2 = data["display_shape_2"].repeat_interleave(4)
@@ -574,6 +578,7 @@ if __name__ == "__main__":
     train_dataset = SameDifferentDataset(
         data_dir + "/train",
         transform=transform,
+        task=task,
     )
     train_dataloader = DataLoader(
         train_dataset,
@@ -586,12 +591,14 @@ if __name__ == "__main__":
     val_dataset = SameDifferentDataset(
         data_dir + "/val",
         transform=transform,
+        task=task,
     )
     val_dataloader = DataLoader(val_dataset, batch_size=512, shuffle=True)
 
     test_dataset = SameDifferentDataset(
         data_dir + "/test",
         transform=transform,
+        task=task,
     )
     test_dataloader = DataLoader(test_dataset, batch_size=512, shuffle=True)
 
@@ -607,6 +614,7 @@ if __name__ == "__main__":
             ood_dataset = SameDifferentDataset(
                 ood_dir + "/val",
                 transform=transform,
+                task=task,
             )
             ood_dataloader = DataLoader(ood_dataset, batch_size=512, shuffle=True)
 

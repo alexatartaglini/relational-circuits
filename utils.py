@@ -124,7 +124,7 @@ def load_tl_model(
             f"openai/clip-vit-base-patch{patch_size}"
         )
         hf_model = CLIPVisionModelWithProjection(cfg).to("cuda")
-        hf_model.visual_projection = nn.Linear(cfg.hidden_size, 2, bias=False) 
+        hf_model.visual_projection = nn.Linear(cfg.hidden_size, 2, bias=False)
         hf_model.load_state_dict(torch.load(path))
 
         tl_model = HookedViT.from_pretrained(
@@ -234,13 +234,15 @@ def get_model_probes(
     else:
         probe_dim = int(model.config.hidden_size)
 
-    probe_dim = probe_dim * num_patches
-
     if probe_for == "auxiliary_loss":
         return (
             nn.Linear(probe_dim, num_shapes).to(device),
             nn.Linear(probe_dim, num_colors).to(device),
         )
+
+    # For aux loss, enforce linear subspaces in each token individually
+    # For the rest, doesn't matter, probe the whole set of sequences
+    probe_dim = probe_dim * num_patches
     if probe_for == "shape":
         return nn.Linear(probe_dim, num_shapes).to(device)
     if probe_for == "color":

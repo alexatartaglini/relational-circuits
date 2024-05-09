@@ -360,16 +360,16 @@ class SameDifferentDataset(Dataset):
                 item["pixel_values"] = item["pixel_values"].squeeze(0)
 
         # Append auxiliary loss information into item dict
-        item["stream_1"] = self.im_dict[idx]["stream_1"]
-        item["stream_2"] = self.im_dict[idx]["stream_2"]
+        item["stream_1"] = torch.tensor(self.im_dict[idx]["stream_1"])
+        item["stream_2"] = torch.tensor(self.im_dict[idx]["stream_2"])
         item["shape_1"] = int(self.im_dict[idx]["shape_1"])
         item["shape_2"] = int(self.im_dict[idx]["shape_2"])
         item["color_1"] = self.im_dict[idx]["color_1"]
         item["color_2"] = self.im_dict[idx]["color_2"]
 
         if self.task == "rmts":
-            item["display_stream_1"] = self.im_dict[idx]["display_stream_1"]
-            item["display_stream_2"] = self.im_dict[idx]["display_stream_2"]
+            item["display_stream_1"] = torch.tensor(self.im_dict[idx]["display_stream_1"])
+            item["display_stream_2"] = torch.tensor(self.im_dict[idx]["display_stream_2"])
             item["display_shape_1"] = int(self.im_dict[idx]["display_shape_1"])
             item["display_shape_2"] = int(self.im_dict[idx]["display_shape_2"])
             item["display_color_1"] = self.im_dict[idx]["display_color_1"]
@@ -1755,8 +1755,8 @@ if __name__ == "__main__":
                 create_rmts_das_datasets(compositional=args.compositional, analysis="shape", mode=mode, samples=100)
         else:
             for mode in ["train", "val", "test"]:
-                create_discrimination_das_datasets(compositional=args.compositional, analysis="color", mode=mode, samples=1500)
-                create_discrimination_das_datasets(compositional=args.compositional, analysis="shape", mode=mode, samples=1500)
+                create_discrimination_das_datasets(compositional=args.compositional, analysis="color", mode=mode, samples=100)
+                create_discrimination_das_datasets(compositional=args.compositional, analysis="shape", mode=mode, samples=100)
     elif args.create_source:
         create_source(source=args.source, obj_size=args.obj_size)
     else:  # Create same-different dataset

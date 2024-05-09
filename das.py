@@ -94,7 +94,7 @@ class DasDataset(Dataset):
             "base": base,
             "source": source,
             "labels": label,
-            "intermediate_judgement": intermediate_judgement,
+            "intermediate_judgements": intermediate_judgement,
             "streams": streams,
             "cf_streams": cf_streams,
             "fixed_object_streams": fixed_object_streams,
@@ -333,7 +333,15 @@ def evaluation(
     return eval_metrics
 
 
-def run_abstraction(model, testloader, abstract_vector_functions, criterion, associated_keys, task, clip=False):
+def run_abstraction(
+    model,
+    testloader,
+    abstract_vector_functions,
+    criterion,
+    associated_keys,
+    task,
+    clip=False,
+):
 
     eval_preds = []
     all_labels = []
@@ -434,7 +442,15 @@ def run_abstraction(model, testloader, abstract_vector_functions, criterion, ass
 
 
 def abstraction_eval(
-    model, interventions, testloader, criterion, layer, embeds, task, device=None, clip=False
+    model,
+    interventions,
+    testloader,
+    criterion,
+    layer,
+    embeds,
+    task,
+    device=None,
+    clip=False,
 ):
     if device is None:
         device = torch.device("cuda")
@@ -533,7 +549,13 @@ def abstraction_eval(
         k: partial(torch.normal, mean=means[k], std=stds[k]) for k, _ in embeds.items()
     }
     eval_sampled_metrics = run_abstraction(
-        intervenable, testloader, abstract_vector_functions, criterion, associated_keys, task, clip=clip
+        intervenable,
+        testloader,
+        abstract_vector_functions,
+        criterion,
+        associated_keys,
+        task,
+        clip=clip,
     )
 
     # Eval with more random gaussian vectors
@@ -546,7 +568,13 @@ def abstraction_eval(
         for k, _ in embeds.items()
     }
     fully_random_metrics = run_abstraction(
-        intervenable, testloader, abstract_vector_functions, criterion, associated_keys, task, clip=clip
+        intervenable,
+        testloader,
+        abstract_vector_functions,
+        criterion,
+        associated_keys,
+        task,
+        clip=clip,
     )
 
     # Eval with interpolated vectors
@@ -562,7 +590,13 @@ def abstraction_eval(
         for k, v in embeds.items()
     }
     interpolated_metrics = run_abstraction(
-        intervenable, testloader, abstract_vector_functions, criterion, associated_keys, task, clip=clip
+        intervenable,
+        testloader,
+        abstract_vector_functions,
+        criterion,
+        associated_keys,
+        task,
+        clip=clip,
     )
 
     return eval_sampled_metrics, fully_random_metrics, interpolated_metrics
