@@ -194,7 +194,8 @@ def attention_head_clusters(
         nfeats = 1
 
     if models is None:
-        mlabels = ["clip", "imagenet", "dino", "scratch"]
+        if mlabels is None:
+            mlabels = ["clip", "imagenet", "dino", "scratch"]
         models = []
         image_processors = []
 
