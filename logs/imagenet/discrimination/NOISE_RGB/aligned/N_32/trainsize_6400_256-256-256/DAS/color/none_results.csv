@@ -1,0 +1,2 @@
+,layer,train_loss,train_acc,test_loss,test_acc,gen_loss,gen_acc,sampled_loss,sampled_acc,random_loss,random_acc,interpolated_loss,interpolated_acc
+0,2,0.279,0.925,0.798,0.711,0.825,0.702,1.845,0.362,1.772,0.419,1.213,0.587

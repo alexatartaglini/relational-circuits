@@ -1751,12 +1751,12 @@ if __name__ == "__main__":
     if args.create_das:
         if args.match_to_sample:
             for mode in ["train", "val", "test"]:
-                create_rmts_das_datasets(compositional=args.compositional, analysis="color", mode=mode, samples=100)
-                create_rmts_das_datasets(compositional=args.compositional, analysis="shape", mode=mode, samples=100)
+                create_rmts_das_datasets(compositional=args.compositional, analysis="color", mode=mode, samples=1000)
+                create_rmts_das_datasets(compositional=args.compositional, analysis="shape", mode=mode, samples=1000)
         else:
             for mode in ["train", "val", "test"]:
-                create_discrimination_das_datasets(compositional=args.compositional, analysis="color", mode=mode, samples=100)
-                create_discrimination_das_datasets(compositional=args.compositional, analysis="shape", mode=mode, samples=100)
+                create_discrimination_das_datasets(compositional=args.compositional, analysis="color", mode=mode, samples=1000)
+                create_discrimination_das_datasets(compositional=args.compositional, analysis="shape", mode=mode, samples=1000)
     elif args.create_source:
         create_source(source=args.source, obj_size=args.obj_size)
     else:  # Create same-different dataset

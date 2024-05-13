@@ -1,0 +1,4 @@
+,layer,sampled_loss,sampled_acc,random_loss,random_acc,interpolated_loss,interpolated_acc
+0,0,2.107,0.453,0.715,0.5,0.731,0.523
+1,2,2.139,0.5,0.728,0.539,0.783,0.508
+2,3,2.949,0.508,0.754,0.516,0.706,0.531

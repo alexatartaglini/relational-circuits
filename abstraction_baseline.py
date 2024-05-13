@@ -8,6 +8,7 @@ import argparse
 import sys
 
 from utils import load_tl_model
+from torch.utils.data import DataLoader
 from argparsers import abstraction_baseline_parser
 from torch.nn import CrossEntropyLoss
 
@@ -24,39 +25,52 @@ def patch_residual_component(
     positions,
     source_embeds,
 ):
-    target_residual_component[:, positions, :] = source_embeds
+
+    for i in range(len(target_residual_component)):
+        target_residual_component[i, positions[i]] = source_embeds[i]
     return target_residual_component
 
 
-def generate_embeddings(model, test_dataset):
+def generate_embeddings(model, testloader):
 
-    object_embeds = defaultdict()
-    for data in test_dataset:
-        _, cache = model.run_with_cache(data["base"], remove_batch_dim=True)
+    object_embeds = defaultdict(list)
+    for idx, data in enumerate(testloader):
+        print(idx)
+        if idx > 4:
+            break
+        _, cache = model.run_with_cache(data["base"])
         for layer in range(12):
             resid = cache["resid_post", layer]
             # For RMTS these streams will either both be display objects or sample objects
-            object_embeds[layer].append(resid[data["streams"]])
-            object_embeds[layer].append(resid[data["fixed_object_streams"]])
+            batch_size = resid.shape[0]
+            resid = resid.reshape(-1, 768)
+
+            streams = data["streams"].reshape(-1)
+            object_embeds[layer].append(resid[streams].reshape(batch_size, -1, 768))
+
+            streams = data["fixed_object_streams"].reshape(-1)
+            object_embeds[layer].append(resid[streams].reshape(batch_size, -1, 768))
+
     return object_embeds
 
 
 def run_abstraction(
     model,
-    test_dataset,
+    testloader,
     abstract_vector_function,
     criterion,
     task,
-    clip=False,
     device="cuda",
 ):
 
     eval_preds = []
     all_labels = []
     with torch.no_grad():
-        for idx in range(len(test_dataset)):
+        for idx, inputs in enumerate(testloader):
+            print(idx)
+            if idx > 4:
+                break
             # Sample vectors
-            inputs = test_dataset[idx]
             for k, v in inputs.items():
                 if v is not None and isinstance(v, torch.Tensor):
                     inputs[k] = v.to(device)
@@ -66,7 +80,14 @@ def run_abstraction(
 
             # Get abstract_vectors
             vector_1 = abstract_vector_function().to("cuda")  # Shape should be (4, 768)
+            vector_1 = vector_1[0].unsqueeze(0).repeat(4, 1)
             vector_2 = abstract_vector_function().to("cuda")
+            vector_2 = vector_2[0].unsqueeze(0).repeat(4, 1)
+
+            # Abstract vectors for one object
+            abstract_vectors_1 = []
+            # Abstract vectors for the other object
+            abstract_vectors_2 = []
 
             # If counterfactual label is "same", replace with two equal abstract vectors
             # Else, replace with two different abstract vectors
@@ -75,37 +96,37 @@ def run_abstraction(
                 for label in labels:
                     if label == 1:
                         # Turn different to same
-                        obj_1_vectors = vector_1
-                        obj_2_vectors = vector_1
+                        abstract_vectors_1.append(vector_1)
+                        abstract_vectors_2.append(vector_1)
                     else:
                         # Turn same to different
-                        obj_1_vectors = vector_1
-                        obj_2_vectors = vector_2
+                        abstract_vectors_1.append(vector_1)
+                        abstract_vectors_2.append(vector_2)
             if task == "rmts":
                 # Intermediate Judgements are not counterfactual
                 intermediate_judgements = inputs["intermediate_judgements"]
                 for intermediate_judgement in intermediate_judgements:
                     if intermediate_judgement == 1:
                         # Turn same to different for one pair
-                        obj_1_vectors = vector_1
-                        obj_2_vectors = vector_2
+                        abstract_vectors_1.append(vector_1)
+                        abstract_vectors_2.append(vector_2)
                     else:
                         # Turn different to same for one pair
-                        obj_1_vectors = vector_1
-                        obj_2_vectors = vector_1
+                        abstract_vectors_1.append(vector_1)
+                        abstract_vectors_2.append(vector_1)
 
             hook_obj1 = partial(
                 patch_residual_component,
                 positions=inputs["streams"],
-                source_embeds=obj_1_vectors,
+                source_embeds=torch.stack(abstract_vectors_1, dim=0),
             )
             hook_obj2 = partial(
                 patch_residual_component,
                 positions=inputs["fixed_object_streams"],
-                source_embeds=obj_2_vectors,
+                source_embeds=torch.stack(abstract_vectors_2, dim=0),
             )
             patched_logits = model.run_with_hooks(
-                inputs["base"].unsqueeze(0),
+                inputs["base"],
                 fwd_hooks=[
                     (utils.get_act_name("resid_post", layer), hook_obj1),
                     (utils.get_act_name("resid_post", layer), hook_obj2),
@@ -113,10 +134,8 @@ def run_abstraction(
                 return_type="logits",
             )
 
-            if clip:
-                eval_preds += [patched_logits.image_embeds]
-            else:
-                eval_preds += [patched_logits.logits]
+            eval_preds += [patched_logits]
+
     return compute_metrics(eval_preds, all_labels, criterion, device=device)
 
 
@@ -128,6 +147,7 @@ def compute_metrics(eval_preds, labels, criterion, device=None):
 
     eval_preds = torch.concat(eval_preds, dim=0)
     pred_test_labels = torch.argmax(eval_preds, dim=-1)
+    print(pred_test_labels)
     correct_labels = pred_test_labels == labels  # Counterfactual labels
     total_count = len(correct_labels)
     correct_count = correct_labels.sum().tolist()
@@ -143,12 +163,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     args = abstraction_baseline_parser(parser)
 
-    examples = args.num_examples
     model = args.pretrain
     analysis = args.analysis
     compositional = args.compositional
     run_id = args.run_id
-    ds = args.ds
+    ds = args.dataset_str
     task = args.task
     pretrain = args.pretrain
     obj_size = args.obj_size
@@ -172,7 +191,8 @@ if __name__ == "__main__":
 
     # Get all 4 embeddings for each object
     test_data = DasDataset(data_dir, image_processor, device="cuda")
-    embeds = generate_embeddings(tl_model, test_data)
+    testloader = DataLoader(test_data, batch_size=64, shuffle=True, drop_last=False)
+    embeds = generate_embeddings(tl_model, testloader)
 
     results = {
         "layer": [],
@@ -187,23 +207,23 @@ if __name__ == "__main__":
     criterion = CrossEntropyLoss()
 
     # Run abstraction analyses with functions generated using these embeddings, similar to DAS
-    for layer in range(12):
+    for layer in range(2, 12):
+        print(f"LAYER: {layer}")
         layer_embeds = embeds[layer]
-        layer_embeds = torch.stack(layer_embeds, dim=0)
+        layer_embeds = torch.cat(layer_embeds, dim=0)
         means = torch.mean(layer_embeds, dim=0)
-        stds = torch.stds(layer_embeds, dim=0)
+        stds = torch.std(layer_embeds, dim=0)
 
         # Eval with sampled IID random vectors
         abstract_vector_function = partial(torch.normal, mean=means, std=stds)
         sampled_metrics = run_abstraction(
             tl_model,
-            test_data,
+            testloader,
             abstract_vector_function,
             criterion,
             task,
-            clip="clip" in pretrain,
         )
-
+        print(sampled_metrics)
         # Eval with more random gaussian vectors
         abstract_vector_function = partial(
             torch.normal,
@@ -212,12 +232,12 @@ if __name__ == "__main__":
         )
         fully_random_metrics = run_abstraction(
             tl_model,
-            test_data,
+            testloader,
             abstract_vector_function,
             criterion,
             task,
-            clip="clip" in pretrain,
         )
+        print(sampled_metrics)
 
         # Eval with interpolated vectors
         def interpolate(embs):
@@ -230,12 +250,12 @@ if __name__ == "__main__":
         )
         interpolated_metrics = run_abstraction(
             tl_model,
-            test_data,
+            testloader,
             abstract_vector_function,
             criterion,
             task,
-            clip="clip" in pretrain,
         )
+        print(sampled_metrics)
 
         results["layer"].append(layer)
 
