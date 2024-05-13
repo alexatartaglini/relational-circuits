@@ -399,7 +399,7 @@ class SigmoidMaskRotatedSpaceIntervention(
         self.masks = torch.nn.Parameter(
             torch.tensor([0.0] * self.embed_dim), requires_grad=True
         )
-        self.temperature = torch.nn.Parameter(torch.tensor(1.0))
+        self.temperature = torch.tensor(1.0)
         # MLEPORI Edit: Added abstraction test
         self.abstraction_test = False
         self.save_embeds = False
@@ -416,7 +416,7 @@ class SigmoidMaskRotatedSpaceIntervention(
         return self.temperature
 
     def set_temperature(self, temp: torch.Tensor):
-        self.temperature.data = temp
+        self.temperature = temp
 
     def set_save_embeds(self, bool):
         self.save_embeds = bool
@@ -428,10 +428,9 @@ class SigmoidMaskRotatedSpaceIntervention(
         batch_size = base.shape[0]
         rotated_base = self.rotate_layer(base)
         rotated_source = self.rotate_layer(source)
-
         # get boundary mask between 0 and 1 from sigmoid
         boundary_mask = torch.sigmoid(self.masks / self.temperature)
-
+        # print(boundary_mask)
         # For computing loss
         self.mask_sum = torch.sum(boundary_mask)
         boundary_mask = (

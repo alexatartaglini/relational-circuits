@@ -36,10 +36,8 @@ class DasDataset(Dataset):
 
     def __init__(self, root_dir, image_processor, device, control=False):
         self.root_dir = root_dir
-        print(self.root_dir)
         self.im_dict = pkl.load(open(os.path.join(root_dir, "datadict.pkl"), "rb"))
         self.image_sets = glob.glob(root_dir + "*set*")
-        print(self.image_sets)
         self.image_processor = image_processor
         self.device = device
         self.control = control
@@ -161,7 +159,18 @@ def get_data(analysis, task, image_processor, comp_str, device, control):
     testloader = DataLoader(test_data, batch_size=64, shuffle=False)
     valloader = DataLoader(val_data, batch_size=64, shuffle=False)
 
-    return trainloader, valloader, testloader
+    generalization_data = DasDataset(
+        f"stimuli/das/{task}/trainsize_6400_{comp_str}/{analysis}_32/test/",
+        image_processor,
+        device,
+        control=control,
+    )
+    generalization_data, _ = torch.utils.data.random_split(
+        generalization_data, [1.0, 0.0]
+    )
+    genloader = DataLoader(generalization_data, batch_size=64, shuffle=True)
+
+    return trainloader, valloader, testloader, genloader
 
 
 def train_intervention(
@@ -171,6 +180,7 @@ def train_intervention(
     valloader,
     epochs=20,
     lr=1e-3,
+    mask_lr=1e-3,
     device=None,
     clip=False,
     tie_weights=False,
@@ -185,12 +195,12 @@ def train_intervention(
         optimizer_params = []
         intervention = list(intervenable.interventions.values())[0][0]
         optimizer_params += [{"params": intervention.rotate_layer.parameters()}]
-        optimizer_params += [{"params": intervention.masks, "lr": 1e-1}]
+        optimizer_params += [{"params": intervention.masks, "lr": mask_lr}]
     else:
         optimizer_params = []
         for k, v in intervenable.interventions.items():
             optimizer_params += [{"params": v[0].rotate_layer.parameters()}]
-            optimizer_params += [{"params": v[0].masks, "lr": 1e-1}]
+            optimizer_params += [{"params": v[0].masks, "lr": mask_lr}]
 
     optimizer = torch.optim.Adam(optimizer_params, lr=lr)
     scheduler = get_linear_schedule_with_warmup(
@@ -204,21 +214,25 @@ def train_intervention(
     else:
         datatype = torch.bfloat16
 
-    temperature_start = 1.0
-    temperature_end = 0.01
+    # adopt an exponential temperature schedule
+    temperature_end = 200
+
     temperature_schedule = (
-        torch.linspace(temperature_start, temperature_end, epochs)
+        (temperature_end ** (torch.arange(epochs) / (epochs - 1)))
         .to(datatype)
         .to(device)
     )
-    intervenable.set_temperature(temperature_schedule[0])
-
+    print(temperature_schedule)
     intervenable.model.train()  # train enables drop-off but no grads
     print("ViT trainable parameters: ", count_parameters(intervenable.model))
     print("intervention trainable parameters: ", intervenable.count_parameters())
 
     train_iterator = trange(0, int(epochs), desc="Epoch")
     for epoch in train_iterator:
+
+        for k, v in intervenable.interventions.items():
+            v[0].set_temperature(1 / temperature_schedule[epoch])
+
         epoch_iterator = tqdm(
             trainloader, desc=f"Epoch: {epoch}", position=0, leave=True
         )
@@ -235,6 +249,9 @@ def train_intervention(
                 if v is not None and isinstance(v, torch.Tensor):
                     inputs[k] = v.to(device)
 
+            streams = torch.transpose(inputs["streams"], 0, 1).unsqueeze(2)
+            cf_streams = torch.transpose(inputs["cf_streams"], 0, 1).unsqueeze(2)
+
             # Standard counterfactual loss
             _, counterfactual_outputs = intervenable(
                 {"pixel_values": inputs["base"]},
@@ -243,8 +260,8 @@ def train_intervention(
                 # [num_intervention, batch, num_unit]
                 {
                     "sources->base": (
-                        inputs["cf_streams"].reshape(4, -1, 1),
-                        inputs["streams"].reshape(4, -1, 1),
+                        cf_streams,
+                        streams,
                     ),
                 },
             )
@@ -260,9 +277,12 @@ def train_intervention(
                 0
             ].rotate_layer.weight
 
+            print(loss)
+
             # Boundary loss to encourage sparse subspaces
             for k, v in intervenable.interventions.items():
                 boundary_loss = v[0].mask_sum * 0.001
+                print(boundary_loss)
                 # Assert that weight sharing between interventions is working
                 if tie_weights:
                     assert torch.all(
@@ -271,14 +291,13 @@ def train_intervention(
                         )
                     )
 
-            loss += boundary_loss
+                loss += boundary_loss
 
             loss.backward()
             optimizer.step()
             scheduler.step()
             intervenable.set_zero_grad()
             total_step += 1
-        intervenable.set_temperature(temperature_schedule[epoch])
 
     return intervenable, metrics
 
@@ -303,6 +322,9 @@ def evaluation(
                 if v is not None and isinstance(v, torch.Tensor):
                     inputs[k] = v.to(device)
 
+            streams = torch.transpose(inputs["streams"], 0, 1).unsqueeze(2)
+            cf_streams = torch.transpose(inputs["cf_streams"], 0, 1).unsqueeze(2)
+
             _, counterfactual_outputs = intervenable(
                 {"pixel_values": inputs["base"]},
                 [{"pixel_values": inputs["source"]}],
@@ -310,8 +332,8 @@ def evaluation(
                 # [num_intervention, batch, num_unit]
                 {
                     "sources->base": (
-                        inputs["cf_streams"].reshape(4, -1, 1),
-                        inputs["streams"].reshape(4, -1, 1),
+                        cf_streams,
+                        streams,
                     ),
                 },
             )
@@ -341,7 +363,10 @@ def run_abstraction(
     associated_keys,
     task,
     clip=False,
+    interpolate=False,
+    num_embeds=-1,
 ):
+    print("RUN ABSTRACTION")
 
     eval_preds = []
     all_labels = []
@@ -358,9 +383,22 @@ def run_abstraction(
             all_labels += labels
 
             # Set abstract_vectors for each intervention
+
+            # Keep interpolated embeds constant throughout all interventions
+            if interpolate:
+                values = np.random.choice(num_embeds, 4)
+
             for key, associated_key in associated_keys.items():
-                vector_1 = abstract_vector_functions[key]().to("cuda")
-                vector_2 = abstract_vector_functions[key]().to("cuda")
+                if interpolate:
+                    vector_1 = abstract_vector_functions[key](
+                        value1=values[0], value2=values[1]
+                    ).to("cuda")
+                    vector_2 = abstract_vector_functions[key](
+                        value1=values[2], value2=values[3]
+                    ).to("cuda")
+                else:
+                    vector_1 = abstract_vector_functions[key]().to("cuda")
+                    vector_2 = abstract_vector_functions[key]().to("cuda")
 
                 # Abstract vectors for one object
                 abstract_vectors_1 = []
@@ -406,15 +444,15 @@ def run_abstraction(
             # Source indices don't matter
             sources_indices = torch.concat(
                 [
-                    inputs["streams"].reshape(4, -1, 1),
-                    inputs["streams"].reshape(4, -1, 1),
+                    torch.transpose(inputs["streams"], 0, 1).unsqueeze(2),
+                    torch.transpose(inputs["streams"], 0, 1).unsqueeze(2),
                 ],
                 dim=0,
             )
             base_indices = torch.concat(
                 [
-                    inputs["streams"].reshape(4, -1, 1),
-                    inputs["fixed_object_streams"].reshape(4, -1, 1),
+                    torch.transpose(inputs["streams"], 0, 1).unsqueeze(2),
+                    torch.transpose(inputs["fixed_object_streams"], 0, 1).unsqueeze(2),
                 ],
                 dim=0,
             )
@@ -525,7 +563,7 @@ def abstraction_eval(
 
     # Ensure that interventions on both objects have the same settings as the base interventions
     for i in range(4):
-        key1 = f"layer.0.comp.block_output.unit.pos.nunit.1#{i}"
+        key1 = f"layer.{layer}.comp.block_output.unit.pos.nunit.1#{i}"
         intervenable.interventions[key1][0].rotate_layer = interventions[key1][
             0
         ].rotate_layer
@@ -534,7 +572,7 @@ def abstraction_eval(
             0
         ].temperature
 
-        key2 = f"layer.0.comp.block_output.unit.pos.nunit.1#{i + 4}"
+        key2 = f"layer.{layer}.comp.block_output.unit.pos.nunit.1#{i + 4}"
         intervenable.interventions[key2][0].rotate_layer = interventions[key1][
             0
         ].rotate_layer
@@ -548,6 +586,8 @@ def abstraction_eval(
     abstract_vector_functions = {
         k: partial(torch.normal, mean=means[k], std=stds[k]) for k, _ in embeds.items()
     }
+    print(means[list(embeds.keys())[0]])
+    print(stds[list(embeds.keys())[0]])
     eval_sampled_metrics = run_abstraction(
         intervenable,
         testloader,
@@ -578,9 +618,8 @@ def abstraction_eval(
     )
 
     # Eval with interpolated vectors
-    def interpolate(embs):
-        choices = np.random.choice(range(len(embs)), size=2)
-        return (embs[choices[0]] * 0.5) + (embs[choices[1]] * 0.5)
+    def interpolate(embs, value1, value2):
+        return (embs[value1] * 0.5) + (embs[value2] * 0.5)
 
     abstract_vector_functions = {
         k: partial(
@@ -589,6 +628,10 @@ def abstraction_eval(
         )
         for k, v in embeds.items()
     }
+
+    for k, v in embeds.items():
+        num_embeds = len(v)
+
     interpolated_metrics = run_abstraction(
         intervenable,
         testloader,
@@ -597,6 +640,8 @@ def abstraction_eval(
         associated_keys,
         task,
         clip=clip,
+        interpolate=True,
+        num_embeds=num_embeds,
     )
 
     return eval_sampled_metrics, fully_random_metrics, interpolated_metrics
@@ -622,6 +667,8 @@ def compute_metrics(eval_preds, labels, criterion, device=None):
 
     eval_preds = torch.concat(eval_preds, dim=0)
     pred_test_labels = torch.argmax(eval_preds, dim=-1)
+    print(pred_test_labels[:20])
+    print(labels[:20])
     correct_labels = pred_test_labels == labels  # Counterfactual labels
     total_count = len(correct_labels)
     correct_count = correct_labels.sum().tolist()
@@ -660,6 +707,11 @@ if __name__ == "__main__":
     max_layer = args.max_layer
     tie_intervention_weights = args.tie_weights
 
+    if tie_intervention_weights.lower() == "true":
+        tie_intervention_weights = True
+    else:
+        tie_intervention_weights = False
+
     if compositional < 0:
         comp_str = "256-256-256"
     else:
@@ -690,6 +742,8 @@ if __name__ == "__main__":
         "train_acc": [],
         "test_loss": [],
         "test_acc": [],
+        "gen_loss": [],
+        "gen_acc": [],
         "sampled_loss": [],
         "sampled_acc": [],
         "random_loss": [],
@@ -698,7 +752,7 @@ if __name__ == "__main__":
         "interpolated_acc": [],
     }
 
-    trainloader, valloader, testloader = get_data(
+    trainloader, valloader, testloader, genloader = get_data(
         analysis, task, image_processor, comp_str, device, control
     )
 
@@ -721,13 +775,16 @@ if __name__ == "__main__":
             valloader,
             epochs=args.num_epochs,
             lr=args.lr,
+            mask_lr=args.mask_lr,
             device=device,
             clip=pretrain == "clip",
-            tie_weights=True,
+            tie_weights=tie_intervention_weights,
         )
 
         # Effectively snap to binary
-        intervenable.set_temperature(0.00001)
+        for k, v in intervenable.interventions.items():
+            v[0].set_temperature(1e-8)
+
         train_metrics = evaluation(
             intervenable, trainloader, criterion, device=device, clip=pretrain == "clip"
         )
@@ -739,12 +796,20 @@ if __name__ == "__main__":
             device=device,
             clip=pretrain == "clip",
         )
-
+        gen_metrics = evaluation(
+            intervenable,
+            genloader,
+            criterion,
+            device=device,
+            clip=pretrain == "clip",
+        )
         results["layer"].append(layer)
         results["train_acc"].append(train_metrics["accuracy"])
         results["train_loss"].append(train_metrics["loss"])
         results["test_acc"].append(test_metrics["accuracy"])
         results["test_loss"].append(test_metrics["loss"])
+        results["gen_acc"].append(gen_metrics["accuracy"])
+        results["gen_loss"].append(gen_metrics["loss"])
 
         control_str = control + "_"
 

@@ -321,12 +321,6 @@ def data_generation_parser(parser):
         help="Create compositional NOISE_RGB dataset with specified # of combinations in train set.",
     )
     parser.add_argument(
-        "--create_subspace",
-        action="store_true",
-        default=False,
-        help="Create subspace analysis images",
-    )
-    parser.add_argument(
         "--create_das",
         action="store_true",
         default=False,
@@ -407,22 +401,29 @@ def das_parser(parser):
         help="Maximum layer to perform intervention.",
     )
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate.")
+
+    parser.add_argument(
+        "--mask_lr", type=float, default=1e-1, help="Learning rate for mask."
+    )
+
     parser.add_argument(
         "--num_epochs",
         type=int,
-        default=20,
+        default=10,
         help="Number of training epochs for intervention.",
     )
     parser.add_argument(
         "--control",
         type=str,
+        required=False,
         default="none",
         help="Set control condition.",
     )
     parser.add_argument(
         "--tie_weights",
-        type=bool,
-        default=True,
+        type=str,
+        required=False,
+        default="false",
         help="Whether to tie intervention weights position-wise",
     )
     args = parser.parse_args()
@@ -474,3 +475,4 @@ def abstraction_baseline_parser(parser):
         default="shape",
         help="Analysis to run (shape or color).",
     )
+    return parser.parse_args()
