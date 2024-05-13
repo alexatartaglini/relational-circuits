@@ -439,6 +439,11 @@ def run_abstraction(
                     True, torch.stack(abstract_vectors_2)
                 )
 
+            print("vect 1")
+            print(vector_1)
+            print("vect 2")
+            print(vector_2)
+
             # For abstraction test, inject a random vector
             # into both the subspaces for fixed and edited objects
             # Source indices don't matter
@@ -495,7 +500,11 @@ def abstraction_eval(
 
     embeds = {k: torch.concat(v, dim=0) for k, v in embeds.items()}
     means = {k: torch.mean(v, dim=0) for k, v in embeds.items()}
-    stds = {k: torch.std(v, dim=0) for k, v in embeds.items()}
+    stds = {k: 2 * torch.std(v, dim=0) for k, v in embeds.items()}
+    print("means")
+    [print(stds[k]) for k, v in stds.items()]
+    print("stds")
+    [print(stds[k]) for k, v in stds.items()]
 
     # Set up a parallel intervention model
     parallel_config = IntervenableConfig(
@@ -586,9 +595,28 @@ def abstraction_eval(
     abstract_vector_functions = {
         k: partial(torch.normal, mean=means[k], std=stds[k]) for k, _ in embeds.items()
     }
-    print(means[list(embeds.keys())[0]])
-    print(stds[list(embeds.keys())[0]])
     eval_sampled_metrics = run_abstraction(
+        intervenable,
+        testloader,
+        abstract_vector_functions,
+        criterion,
+        associated_keys,
+        task,
+        clip=clip,
+    )
+
+    # Sample a random element from each tensor
+    def random_elements(embeds):
+        rows = torch.randperm(len(embeds))
+        # More datapoints than embed dim
+        assert len(rows) > len(embeds[0])
+        rows = rows[: len(embeds[0])]
+        return embeds[rows, torch.arange(len(embeds[0]))]
+
+    abstract_vector_functions = {
+        k: partial(random_elements, embeds=v) for k, v in embeds.items()
+    }
+    eval_rand_element_metrics = run_abstraction(
         intervenable,
         testloader,
         abstract_vector_functions,
@@ -619,7 +647,7 @@ def abstraction_eval(
 
     # Eval with interpolated vectors
     def interpolate(embs, value1, value2):
-        return (embs[value1] * 0.5) + (embs[value2] * 0.5)
+        return (embs[value1] * 1.0) + (embs[value2] * 1.0)
 
     abstract_vector_functions = {
         k: partial(
@@ -644,7 +672,12 @@ def abstraction_eval(
         num_embeds=num_embeds,
     )
 
-    return eval_sampled_metrics, fully_random_metrics, interpolated_metrics
+    return (
+        eval_sampled_metrics,
+        eval_rand_element_metrics,
+        fully_random_metrics,
+        interpolated_metrics,
+    )
 
 
 def tie_weights(model):
@@ -667,8 +700,9 @@ def compute_metrics(eval_preds, labels, criterion, device=None):
 
     eval_preds = torch.concat(eval_preds, dim=0)
     pred_test_labels = torch.argmax(eval_preds, dim=-1)
-    print(pred_test_labels[:20])
-    print(labels[:20])
+    print("Preds, Labels")
+    print(pred_test_labels[:50])
+    print(labels[:50])
     correct_labels = pred_test_labels == labels  # Counterfactual labels
     total_count = len(correct_labels)
     correct_count = correct_labels.sum().tolist()
@@ -746,6 +780,8 @@ if __name__ == "__main__":
         "gen_acc": [],
         "sampled_loss": [],
         "sampled_acc": [],
+        "rand_el_loss": [],
+        "rand_el_acc": [],
         "random_loss": [],
         "random_acc": [],
         "interpolated_loss": [],
@@ -837,19 +873,24 @@ if __name__ == "__main__":
                 idx += 1
 
         # Run abstraction eval
-        sampled_metrics, fully_random_metrics, interpolated_metrics = abstraction_eval(
-            model,
-            intervenable.interventions,
-            testloader,
-            criterion,
-            layer,
-            embeds,
-            task,
-            clip=pretrain == "clip",
+        sampled_metrics, rand_el_metrics, fully_random_metrics, interpolated_metrics = (
+            abstraction_eval(
+                model,
+                intervenable.interventions,
+                testloader,
+                criterion,
+                layer,
+                embeds,
+                task,
+                clip=pretrain == "clip",
+            )
         )
 
         results["sampled_acc"].append(sampled_metrics["accuracy"])
         results["sampled_loss"].append(sampled_metrics["loss"])
+
+        results["rand_el_acc"].append(rand_el_metrics["accuracy"])
+        results["rand_el_loss"].append(rand_el_metrics["loss"])
 
         results["random_acc"].append(fully_random_metrics["accuracy"])
         results["random_loss"].append(fully_random_metrics["loss"])
