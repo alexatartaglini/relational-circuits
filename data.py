@@ -740,7 +740,7 @@ def create_stimuli(
     patch_dir,
     condition,
     obj_size=32,
-    buffer_factor=8,
+    buffer_factor=4,
     compositional=-1,
     texture=False, 
     match_to_sample=False,
@@ -1110,7 +1110,7 @@ def create_source(
     if "ood" in source: 
         ood_means = ["103-110-0", "255-155-238", "145-0-0", "194-188-255"]
         ood_colors = list(itertools.product(ood_means, variances))
-        ood_shape_masks = [f"stimuli/source/shapemasks/{i}.png" for i in [17, 25, 26, 31]]
+        ood_shape_masks = [f"stimuli/source/shapemasks/{i}.png" for i in [16, 17, 18, 19]]
         settings = ["NOISE_ood/ood-shape-color", "NOISE_ood/ood-shape", "NOISE_ood/ood-color"]
         
         shape_mask_settings = [ood_shape_masks, ood_shape_masks, iid_shape_masks]
@@ -1206,7 +1206,7 @@ def create_particular_stimulus(
     display_color_2=None,
     display_position_1=None,
     display_position_2=None,
-    buffer_factor=8,
+    buffer_factor=4,
     im_size=224,
     patch_size=16,
     obj_size=32,
