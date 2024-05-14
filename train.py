@@ -61,6 +61,7 @@ def compute_auxiliary_loss(
 
     states = torch.cat((states_1, states_2))
     shapes = torch.cat((shapes_1, shapes_2)).to(device)
+
     colors = torch.cat((colors_1, colors_2)).to(device)
 
     # Add RMTS Display objects to train probe
@@ -87,6 +88,12 @@ def compute_auxiliary_loss(
         colors = torch.cat(
             (colors, display_colors_1.to(device), display_colors_2.to(device))
         )
+
+    # Assert that color and shape are within range
+    assert torch.all(colors < 16)
+    assert torch.all(colors >= 0)
+    assert torch.all(shapes < 16)
+    assert torch.all(shapes >= 0)
 
     # Run shape probe on half of the embedding, color probe on other half, ensures nonoverlapping subspaces
     shape_outs = shape_probe(states[:, :probe_dim])
@@ -264,12 +271,19 @@ def evaluation(
         print("Val ROC-AUC: {:.4f}".format(epoch_roc_auc))
         print()
 
-        return {
+        results = {
             "Label": "Val",
             "loss": epoch_loss_val,
             "acc": epoch_acc_val,
             "roc_auc": epoch_roc_auc,
         }
+
+        if args.auxiliary_loss:
+            epoch_shape_acc_val = running_shape_acc_val / len(val_dataset)
+            epoch_color_acc_val = running_color_acc_val / len(val_dataset)
+            results["shape_acc"] = epoch_shape_acc_val
+            results["color_acc"] = epoch_color_acc_val
+        return results
 
 
 def train_model(
@@ -376,6 +390,9 @@ def train_model(
         metric_dict["val_loss"] = result["loss"]
         metric_dict["val_acc"] = result["acc"]
         metric_dict["val_roc_auc"] = result["roc_auc"]
+        if args.auxiliary_loss:
+            metric_dict["val_shape_acc"] = result["shape_acc"]
+            metric_dict["val_color_acc"] = result["color_acc"]
 
         print("\nUnseen combinations: \n")
         result = evaluation(
@@ -394,6 +411,9 @@ def train_model(
         metric_dict["test_loss"] = result["loss"]
         metric_dict["test_acc"] = result["acc"]
         metric_dict["test_roc_auc"] = result["roc_auc"]
+        if args.auxiliary_loss:
+            metric_dict["test_shape_acc"] = result["shape_acc"]
+            metric_dict["test_color_acc"] = result["color_acc"]
 
         for ood_label, ood_dataset, ood_dataloader in zip(
             ood_labels, ood_datasets, ood_dataloaders

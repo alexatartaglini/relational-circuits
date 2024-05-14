@@ -95,70 +95,51 @@ def load_model_from_path(
 
 
 def load_tl_model(
-        pretrain, 
-        patch_size=16, 
-        compositional=-1, 
-        ds="NOISE_RGB", 
-        finetuned=True
+    path,
+    model_type="vit",
+    patch_size=16,
+    im_size=224,
 ):
-    """
-    Loads a pretrained/finetuned model into a TransformerLens HookedViT object. 
-    Returns the TransformerLens model and the relevant image processor for the model.
-    
-    :param pretrain: "scracth", "imagenet", "clip", "dino"
-    :param patch_size: = 16, 32
-    :param compositional: = -1, 32
-    :param ds: NOISE_RGB, mts
-    :param finetuned: if False, returns a pretrained model without any finetuning
-    """
-    
-    # Get device
-    try:
-        if torch.cuda.is_available():
-            device = torch.device("cuda")
-        elif torch.backends.mps.is_available() and torch.backends.mps.is_built():
-            device = torch.device("mps")
-        else:
-            device = torch.device("cpu")
-    except AttributeError:  # if MPS is not available
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu") 
-    
-    if pretrain == "scratch" or pretrain == "imagenet" or pretrain == "dino":
-        hf_model = ViTForImageClassification.from_pretrained(f"google/vit-base-patch{patch_size}-224-in21k", num_labels=2).to(device)
-        tl_model = HookedViT.from_pretrained(f"google/vit-base-patch{patch_size}-224-in21k").to(device)
-        image_processor = AutoImageProcessor.from_pretrained(f"google/vit-base-patch{patch_size}-224-in21k")
+    # Load models
+    if model_type == "vit":
+        model_path = f"google/vit-base-patch{patch_size}-{im_size}-in21k"
+        transform = ViTImageProcessor(do_resize=False).from_pretrained(model_path)
 
-    elif pretrain == "clip":
-        hf_model = CLIPVisionModelWithProjection.from_pretrained(f"openai/clip-vit-base-patch{patch_size}")
-        tl_model = HookedViT.from_pretrained(f"openai/clip-vit-base-patch{patch_size}", is_clip=True)
-        image_processor = AutoProcessor.from_pretrained(f"openai/clip-vit-base-patch{patch_size}")
-        
-        in_features = hf_model.visual_projection.in_features
-        hf_model.visual_projection = torch.nn.Linear(in_features, 2, bias=False).to("mps")
-        tl_model.classifier_head.W = hf_model.visual_projection.weight
-    
-    # Get finetuned file
-    if finetuned:
-        if compositional < 0:
-            train_str = "256-256-256"
-        else:
-            train_str = f"{compositional}-{compositional}-{256-compositional}"
-        
-        model_path = glob.glob(f"models/{pretrain}/{ds}_32/{train_str}*.pth")[0]
-        model_file = torch.load(model_path, map_location=torch.device(device))
+        hf_model = ViTForImageClassification.from_pretrained(model_path).to("cuda")
 
-        hf_model.load_state_dict(model_file)
-    else:
-        train_str = ""
-    
-    if pretrain == "clip":
-        state_dict = convert_clip_weights(hf_model, tl_model.cfg)
-    else:
+        tl_model = HookedViT.from_pretrained(
+            f"google/vit-base-patch{patch_size}-{im_size}-in21k"
+        ).to("cuda")
+
+        hf_model.load_state_dict(torch.load(path))
         state_dict = convert_vit_weights(hf_model, tl_model.cfg)
-    tl_model.load_state_dict(state_dict, strict=False)
-    
-    tl_model.eval()
-    return tl_model, image_processor
+        tl_model.load_state_dict(state_dict, strict=False)
+
+    if "clip" in model_type:
+
+        transform = AutoProcessor.from_pretrained(
+            f"openai/clip-vit-base-patch{patch_size}"
+        ).image_processor
+        cfg = CLIPVisionConfig.from_pretrained(
+            f"openai/clip-vit-base-patch{patch_size}"
+        )
+        hf_model = CLIPVisionModelWithProjection(cfg).to("cuda")
+        hf_model.visual_projection = nn.Linear(cfg.hidden_size, 2, bias=False)
+        hf_model.load_state_dict(torch.load(path))
+
+        tl_model = HookedViT.from_pretrained(
+            f"openai/clip-vit-base-patch{patch_size}",
+            is_clip=True,
+            force_projection_bias=True,
+        )
+        tl_model.cfg.num_labels = 2
+        tl_model.classifier_head = ViTHead(tl_model.cfg)
+        tl_model.to("cuda")
+
+        state_dict = convert_clip_weights(hf_model, tl_model.cfg)
+        tl_model.load_state_dict(state_dict, strict=False)
+
+    return transform, tl_model
 
 
 def load_model_for_training(

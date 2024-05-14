@@ -250,7 +250,13 @@ def train_intervention(
                     inputs[k] = v.to(device)
 
             streams = torch.transpose(inputs["streams"], 0, 1).unsqueeze(2)
-            cf_streams = torch.transpose(inputs["cf_streams"], 0, 1).unsqueeze(2)
+
+            # Shuffle CF streams (within-image of course) to lose relative position information, focusing just on
+            # abstract whole object properties.
+            cf_streams = inputs["cf_streams"][
+                :, torch.randperm(inputs["cf_streams"].shape[1])
+            ]
+            cf_streams = torch.transpose(cf_streams, 0, 1).unsqueeze(2)
 
             # Standard counterfactual loss
             _, counterfactual_outputs = intervenable(
@@ -385,8 +391,15 @@ def run_abstraction(
             # Set abstract_vectors for each intervention
 
             # Keep interpolated embeds constant throughout all interventions
+
+            # For interpolation abstraction analyses, make sure all patches get embeds interpolated between the same set of vectors
             if interpolate:
                 values = np.random.choice(num_embeds, 4)
+            else:
+                # For other analyses, input the exact same vector into each patch
+                key = np.random.choice(list(abstract_vector_functions.keys()))
+                vector_1 = abstract_vector_functions[key]().to("cuda")
+                vector_2 = abstract_vector_functions[key]().to("cuda")
 
             for key, associated_key in associated_keys.items():
                 if interpolate:
@@ -397,8 +410,9 @@ def run_abstraction(
                         value1=values[2], value2=values[3]
                     ).to("cuda")
                 else:
-                    vector_1 = abstract_vector_functions[key]().to("cuda")
-                    vector_2 = abstract_vector_functions[key]().to("cuda")
+                    pass
+                    # vector_1 = abstract_vector_functions[key]().to("cuda")
+                    # vector_2 = abstract_vector_functions[key]().to("cuda")
 
                 # Abstract vectors for one object
                 abstract_vectors_1 = []
@@ -499,12 +513,13 @@ def abstraction_eval(
         device = torch.device("cuda")
 
     embeds = {k: torch.concat(v, dim=0) for k, v in embeds.items()}
-    means = {k: torch.mean(v, dim=0) for k, v in embeds.items()}
-    stds = {k: torch.std(v, dim=0) for k, v in embeds.items()}
+    all_embeds = torch.concat([v for k, v in embeds.items()], dim=0)
+    means = torch.mean(all_embeds, dim=0)
+    stds = torch.std(all_embeds, dim=0)
     print("means")
-    [print(stds[k]) for k, v in stds.items()]
+    print(means)
     print("stds")
-    [print(stds[k]) for k, v in stds.items()]
+    print(stds)
 
     # Set up a parallel intervention model
     parallel_config = IntervenableConfig(
@@ -593,30 +608,9 @@ def abstraction_eval(
 
     # Eval with sampled IID random vectors
     abstract_vector_functions = {
-        k: partial(torch.normal, mean=means[k], std=stds[k]) for k, _ in embeds.items()
+        k: partial(torch.normal, mean=means, std=stds) for k, _ in embeds.items()
     }
     eval_sampled_metrics = run_abstraction(
-        intervenable,
-        testloader,
-        abstract_vector_functions,
-        criterion,
-        associated_keys,
-        task,
-        clip=clip,
-    )
-
-    # Sample a random element from each tensor
-    def random_elements(embeds):
-        rows = torch.randperm(len(embeds))
-        # More datapoints than embed dim
-        assert len(rows) > len(embeds[0])
-        rows = rows[: len(embeds[0])]
-        return embeds[rows, torch.arange(len(embeds[0]))]
-
-    abstract_vector_functions = {
-        k: partial(random_elements, embeds=v) for k, v in embeds.items()
-    }
-    eval_rand_element_metrics = run_abstraction(
         intervenable,
         testloader,
         abstract_vector_functions,
@@ -630,8 +624,8 @@ def abstraction_eval(
     abstract_vector_functions = {
         k: partial(
             torch.normal,
-            mean=torch.zeros(means[k].shape),
-            std=torch.ones(stds[k].shape),
+            mean=torch.zeros(means.shape),
+            std=torch.ones(stds.shape),
         )
         for k, _ in embeds.items()
     }
@@ -646,15 +640,11 @@ def abstraction_eval(
     )
 
     # Eval with interpolated vectors
-    def interpolate(embs, value1, value2):
-        return (embs[value1] * 0.5) + (embs[value2] * 0.5)
+    def interpolate(embs, value1, value2, coef1, coef2):
+        return (embs[value1] * coef1) + (embs[value2] * coef2)
 
     abstract_vector_functions = {
-        k: partial(
-            interpolate,
-            embs=v,
-        )
-        for k, v in embeds.items()
+        k: partial(interpolate, embs=v, coef1=0.5, coef2=0.5) for k, v in embeds.items()
     }
 
     for k, v in embeds.items():
@@ -672,11 +662,31 @@ def abstraction_eval(
         num_embeds=num_embeds,
     )
 
+    # Eval with added vectors
+    abstract_vector_functions = {
+        k: partial(interpolate, embs=v, coef1=1.0, coef2=1.0) for k, v in embeds.items()
+    }
+
+    for k, v in embeds.items():
+        num_embeds = len(v)
+
+    added_metrics = run_abstraction(
+        intervenable,
+        testloader,
+        abstract_vector_functions,
+        criterion,
+        associated_keys,
+        task,
+        clip=clip,
+        interpolate=True,
+        num_embeds=num_embeds,
+    )
+
     return (
         eval_sampled_metrics,
-        eval_rand_element_metrics,
         fully_random_metrics,
         interpolated_metrics,
+        added_metrics,
     )
 
 
@@ -780,8 +790,8 @@ if __name__ == "__main__":
         "gen_acc": [],
         "sampled_loss": [],
         "sampled_acc": [],
-        "rand_el_loss": [],
-        "rand_el_acc": [],
+        "added_loss": [],
+        "added_acc": [],
         "random_loss": [],
         "random_acc": [],
         "interpolated_loss": [],
@@ -873,7 +883,7 @@ if __name__ == "__main__":
                 idx += 1
 
         # Run abstraction eval
-        sampled_metrics, rand_el_metrics, fully_random_metrics, interpolated_metrics = (
+        sampled_metrics, fully_random_metrics, interpolated_metrics, added_metrics = (
             abstraction_eval(
                 model,
                 intervenable.interventions,
@@ -889,8 +899,8 @@ if __name__ == "__main__":
         results["sampled_acc"].append(sampled_metrics["accuracy"])
         results["sampled_loss"].append(sampled_metrics["loss"])
 
-        results["rand_el_acc"].append(rand_el_metrics["accuracy"])
-        results["rand_el_loss"].append(rand_el_metrics["loss"])
+        results["added_acc"].append(added_metrics["accuracy"])
+        results["added_loss"].append(added_metrics["loss"])
 
         results["random_acc"].append(fully_random_metrics["accuracy"])
         results["random_loss"].append(fully_random_metrics["loss"])
