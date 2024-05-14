@@ -500,7 +500,7 @@ def abstraction_eval(
 
     embeds = {k: torch.concat(v, dim=0) for k, v in embeds.items()}
     means = {k: torch.mean(v, dim=0) for k, v in embeds.items()}
-    stds = {k: 2 * torch.std(v, dim=0) for k, v in embeds.items()}
+    stds = {k: torch.std(v, dim=0) for k, v in embeds.items()}
     print("means")
     [print(stds[k]) for k, v in stds.items()]
     print("stds")
@@ -647,7 +647,7 @@ def abstraction_eval(
 
     # Eval with interpolated vectors
     def interpolate(embs, value1, value2):
-        return (embs[value1] * 1.0) + (embs[value2] * 1.0)
+        return (embs[value1] * 0.5) + (embs[value2] * 0.5)
 
     abstract_vector_functions = {
         k: partial(
