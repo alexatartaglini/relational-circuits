@@ -315,6 +315,12 @@ def data_generation_parser(parser):
         help="Create NOISE_RGB source objects (rather than a same-different dataset).",
     )
     parser.add_argument(
+        "--create_held_out_test_set",
+        action="store_true",
+        default=False,
+        help="Create IID test set (to report results on in paper).",
+    )
+    parser.add_argument(
         "--compositional",
         type=int,
         default=-1,
