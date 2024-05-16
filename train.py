@@ -632,18 +632,19 @@ if __name__ == "__main__":
     if not os.path.exists(data_dir):
         raise ValueError("Train Data Directory does not exist")
 
-    train_dataset = SameDifferentDataset(
-        data_dir + "/train",
-        transform=transform,
-        task=task,
-    )
-    train_dataloader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=args.num_gpus,
-        drop_last=True,
-    )
+    if not args.evaluate:
+        train_dataset = SameDifferentDataset(
+            data_dir + "/train",
+            transform=transform,
+            task=task,
+        )
+        train_dataloader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=args.num_gpus,
+            drop_last=True,
+        )
 
     val_dataset = SameDifferentDataset(
         data_dir + "/val",
@@ -664,7 +665,7 @@ if __name__ == "__main__":
     ood_dataloaders = []
     if ood:
         ood_labels = ["ood-shape", "ood-color", "ood-shape-color"]
-        ood_dirs = ["64-64-64", "64-64-64", "16-16-16"]
+        ood_dirs = ["64-64-64", "64-64-64", "64-64-64"]
 
         for ood_label, ood_dir in zip(ood_labels, ood_dirs):
             ood_dir = f"stimuli/NOISE_ood/{ood_label}/aligned/N_{obj_size}/trainsize_6400_{ood_dir}"
@@ -688,9 +689,21 @@ if __name__ == "__main__":
             dataloaders = ood_dataloaders
             datasets = ood_datasets
         else:
-            labels = [f"{dataset_str}_val", f"{dataset_str}_test"]
-            dataloaders = [val_dataloader, test_dataloader]
-            datasets = [val_dataset, val_dataloader]
+            if os.path.exists(f"{data_dir}/test_iid"):
+                test_iid_dataset = SameDifferentDataset(
+                    data_dir + "/test_iid",
+                    transform=transform,
+                    task=task,
+                )
+                test_iid_dataloader = DataLoader(test_dataset, batch_size=512, shuffle=True)
+                
+                labels = [f"{dataset_str}_val", f"{dataset_str}_test_iid", f"{dataset_str}_test"]
+                dataloaders = [val_dataloader, test_iid_dataloader, test_dataloader]
+                datasets = [val_dataset, test_iid_dataset, test_dataset]
+            else:
+                labels = [f"{dataset_str}_val", f"{dataset_str}_test"]
+                dataloaders = [val_dataloader, test_dataloader]
+                datasets = [val_dataset, val_dataloader]
 
         for label, dataloader, dataset in zip(labels, dataloaders, datasets):
             res = evaluation(

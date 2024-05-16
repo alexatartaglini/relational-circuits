@@ -1135,6 +1135,71 @@ def call_create_stimuli(
         texture=texture, 
         match_to_sample=match_to_sample,
     )
+    
+    
+def create_held_out_test_set(
+    patch_size, 
+    n_test_iid, 
+    patch_dir, 
+    im_size=224, 
+    obj_size=32,
+    compositional=-1, 
+    texture=False, 
+    match_to_sample=False,
+):
+    
+    sd_classes = ["same", "different"]
+    if not match_to_sample:
+        sd_classes += ["different-shape", "different-color"]
+
+    conditions = ["test_iid"]
+        
+    for condition in conditions:
+        os.makedirs("{0}/{1}".format(patch_dir, condition), exist_ok=True)
+
+        for sd_class in sd_classes:
+            os.makedirs(
+                "{0}/{1}/{2}".format(patch_dir, condition, sd_class), exist_ok=True
+            )
+
+    # Collect object image paths
+    if "ood" in patch_dir:
+        if "mts" in patch_dir:
+            stim_type = f"NOISE_ood/{patch_dir.split('/')[2]}"
+        else:
+            stim_type = f"{patch_dir.split('/')[1]}/{patch_dir.split('/')[2]}"
+    elif "mts" in patch_dir:
+        stim_type = "NOISE_RGB"
+    else:
+        stim_type = f"{patch_dir.split('/')[1]}"
+
+    # Retrieve valid combos from val set
+    datadict = pkl.load(open(f"{patch_dir}/val/datadict.pkl", "rb"))
+    object_files_test_iid = []
+    
+    for key in datadict.keys():
+        data = datadict[key]
+        obj1 = f"{data['s1']}_{data['c1']}.png"
+        obj2 = f"{data['s2']}_{data['c2']}.png"
+        
+        object_files_test_iid.append(obj1)
+        object_files_test_iid.append(obj2)
+        
+    object_files_test_iid = list(set(object_files_test_iid))  # get unique objs
+
+    create_stimuli(
+        n_test_iid,
+        object_files_test_iid,
+        patch_size,
+        im_size,
+        stim_type,
+        patch_dir,
+        "test_iid",
+        obj_size=obj_size,
+        compositional=compositional,
+        texture=texture, 
+        match_to_sample=match_to_sample,
+    )
 
 
 def create_source(
@@ -1860,21 +1925,32 @@ if __name__ == "__main__":
         
         patch_dir = f"stimuli/{args.source}/{aligned_str}/N_{args.obj_size}/"
         patch_dir += f"trainsize_{args.n_train}_{args.n_train_tokens}-{args.n_val_tokens}-{args.n_test_tokens}"
-
+        
         # Default behavior for n_val, n_test
         if args.n_val == -1:
             args.n_val = args.n_train
         if args.n_test == -1:
             args.n_test = args.n_train
-
-        call_create_stimuli(
-            args.patch_size,
-            args.n_train,
-            args.n_val,
-            args.n_test,
-            patch_dir,
-            obj_size=args.obj_size,
-            compositional=args.compositional,
-            texture=args.texture,
-            match_to_sample=args.match_to_sample,
-        )
+        
+        if args.create_held_out_test_set:
+            create_held_out_test_set(
+                args.patch_size,
+                args.n_val,
+                patch_dir,
+                obj_size=args.obj_size,
+                compositional=args.compositional,
+                texture=args.texture,
+                match_to_sample=args.match_to_sample,
+            )
+        else:
+            call_create_stimuli(
+                args.patch_size,
+                args.n_train,
+                args.n_val,
+                args.n_test,
+                patch_dir,
+                obj_size=args.obj_size,
+                compositional=args.compositional,
+                texture=args.texture,
+                match_to_sample=args.match_to_sample,
+            )
