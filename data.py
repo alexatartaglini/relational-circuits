@@ -103,7 +103,7 @@ def load_dataset(root_dir, subset=None, task="discrimination", size=-1):
         labels = subset
 
     for l in labels.keys():
-
+        # Limit the number of samples per label if "size" is defined
         label_count = 0
 
         # Load in data dict to get streams, colors, shapes, textures
@@ -115,7 +115,6 @@ def load_dataset(root_dir, subset=None, task="discrimination", size=-1):
 
         for im in im_paths:
             dict_key = os.path.join(*im.split("/")[-3:])
-
             if task == "rmts":            
                 im_dict = {
                     "image_path": im,
@@ -146,9 +145,12 @@ def load_dataset(root_dir, subset=None, task="discrimination", size=-1):
                 }
 
             ims[idx] = im_dict
+
+            # Increment overall key, specific label count 
             idx += 1
             label_count += 1
 
+            # Break if limiting the number of samples
             if label_count == size:
                 break
 
@@ -175,6 +177,8 @@ class ProbeDataset(Dataset):
         self.data = self.process_data()
 
     def process_data(self):
+        """Iterate through im_dict and establish the ground truth labels to probe for
+        """
         data = []
         for idx in range(len(self.im_dict)):
             current_dict = self.im_dict[idx]
@@ -184,15 +188,20 @@ class ProbeDataset(Dataset):
             color_1 = current_dict["color_1"]
             color_2 = current_dict["color_2"]
 
-            # Figure this out with new embeddings
+            # Query the embeddings for each object to probe using the embeddings dictionary
             embedding_1 = self.embeddings[current_dict["image_path"]]["embed_1"][self.probe_layer]
             embedding_2 = self.embeddings[current_dict["image_path"]]["embed_2"][self.probe_layer]
 
             if self.task == "rmts":
-                display_shape_1 = int(self.im_dict[idx]["display_shape_1"])
-                display_shape_2 = int(self.im_dict[idx]["display_shape_2"])
-                display_color_1 = self.im_dict[idx]["display_color_1"]
-                display_color_2 = self.im_dict[idx]["display_color_2"]
+                # RMTS has two more embeddings to probe: The display embeddings
+                display_shape_1 = int(current_dict["display_shape_1"])
+                display_shape_2 = int(current_dict["display_shape_2"])
+                display_color_1 = current_dict["display_color_1"]
+                display_color_2 = current_dict["display_color_2"]
+
+                # RMTS has intermediate judgements for the display and sample pairs
+                # i.e. Each pair must be assigned a same/different label
+                # Here, figure out what those labels are supposed to be for each pair.
                 if (shape_1 == shape_2) and (color_1 == color_2):
                     intermediate_judgement = 1
                 else:
@@ -204,8 +213,14 @@ class ProbeDataset(Dataset):
                     display_intermediate_judgement = 0   
 
                 if self.probe_value != "intermediate_judgements":
+                    # If you're probing for anything but an intermediate judgement, you probe at the single-object level,
+                    # rather than the object-pair level
+
+                    # First, query the embeddings for both display objects
                     display_embedding_1 = self.embeddings[current_dict["image_path"]]["display_embed_1"][self.probe_layer]
                     display_embedding_2 = self.embeddings[current_dict["image_path"]]["display_embed_2"][self.probe_layer]
+
+                    # Second, establish the label for each object
                     if self.probe_value == "color":
                         label_1 = color_1
                         label_2 = color_2
@@ -217,6 +232,8 @@ class ProbeDataset(Dataset):
                         label_2 = shape_2
                         display_label_1 = display_shape_1
                         display_label_2 = display_shape_2
+
+                    # For each object, flatten the embeddings and associate them with their label
                     data += [
                         {"embeddings": embedding_1.reshape(-1), "labels": label_1},
                         {"embeddings": embedding_2.reshape(-1), "labels": label_2},
@@ -224,15 +241,23 @@ class ProbeDataset(Dataset):
                         {"embeddings": display_embedding_2.reshape(-1), "labels": display_label_2}
                     ]
                 else:
+                    # If probing for intermediate judgements, must concatenate the object embeddings within a pair
                     embedding = torch.concat([self.embeddings[current_dict["image_path"]]["embed_1"][self.probe_layer], self.embeddings[current_dict["image_path"]]["embed_2"][self.probe_layer]], dim=0)
+                    assert embedding.shape[0] == 2 or embedding.shape[0] == 8 # Ensure that the pair occupies either 2 or 8 embeddings, depending on object size
+
                     display_embedding = torch.concat([self.embeddings[current_dict["image_path"]]["display_embed_1"][self.probe_layer], self.embeddings[current_dict["image_path"]]["display_embed_2"][self.probe_layer]], dim=0)
+                    assert display_embedding.shape[0] == 2 or display_embedding.shape[0] == 8 # Ensure that the pair occupies either 2 or 8 embeddings, depending on object size
+
                     label = intermediate_judgement
                     display_label = display_intermediate_judgement
+
+                    # For each object, flatten the embeddings of the pair and associate them with their label
                     data += [
                         {"embeddings": embedding.reshape(-1), "labels": label},
                         {"embeddings": display_embedding.reshape(-1), "labels": display_label},
                     ]   
             if self.task == "discrimination":
+                # The discrimination case is simpler, as there are no intermediate judgements to be made
                 if self.probe_value == "color":
                     label_1 = color_1
                     label_2 = color_2
@@ -273,7 +298,9 @@ class LinearInterventionDataset(Dataset):
     def __getitem__(self, idx):
         im_path = self.im_dict[idx]["image_path"]
         im = Image.open(im_path)
-        # Labels are counterfactuals
+
+        # Labels are counterfactuals, the goal is to swap the model's overall decision by
+        # swapping a single same/different judgement
         label = 1 - self.im_dict[idx]["label"]
 
         if self.transform:
@@ -296,12 +323,25 @@ class LinearInterventionDataset(Dataset):
                 item["label"] = label
                 item["pixel_values"] = item["pixel_values"].squeeze(0)
 
-        if self.im_dict[idx]["shape_1"] == self.im_dict[idx]["shape_2"] and self.im_dict[idx]["color_1"] == self.im_dict[idx]["color_2"]:
+
+        # Query the shapes and colors of each object in the image
+        shape_1 = int(self.im_dict[idx]["shape_1"])
+        shape_2 = int(self.im_dict[idx]["shape_2"])
+        color_1 = self.im_dict[idx]["color_1"]
+        color_2 = self.im_dict[idx]["color_2"]
+
+        display_shape_1 = int(self.im_dict[idx]["display_shape_1"])
+        display_shape_2 = int(self.im_dict[idx]["display_shape_2"])
+        display_color_1 = self.im_dict[idx]["display_color_1"]
+        display_color_2 = self.im_dict[idx]["display_color_2"]
+
+        # Assign each pair to a same or different judgement
+        if shape_1 == shape_2 and color_1 == color_2:
             intermediate_judgement = 1
         else:
             intermediate_judgement  = 0    
 
-        if self.im_dict[idx]["display_shape_1"] == self.im_dict[idx]["display_shape_2"] and self.im_dict[idx]["display_color_1"] == self.im_dict[idx]["display_color_2"]:
+        if display_shape_1 == display_shape_2 and display_color_1 == display_color_2:
             display_intermediate_judgement = 1
         else:
             display_intermediate_judgement  = 0      
@@ -309,8 +349,12 @@ class LinearInterventionDataset(Dataset):
         item["pair_label"] = intermediate_judgement
         item["display_label"] = display_intermediate_judgement
 
+        # Positions are lists, so this should be length 2 or 8
         item["pair_pos"] = self.im_dict[idx]["stream_1"] + self.im_dict[idx]["stream_2"]
         item["display_pos"] = self.im_dict[idx]["display_stream_1"] + self.im_dict[idx]["display_stream_2"]
+
+        assert len(item["pair_pos"]) == 2 or len(item["pair_pos"]) == 8 
+        assert len(item["display_pos"]) == 2 or len(item["display_pos"]) == 8 
 
         return item
     
@@ -1600,7 +1644,15 @@ def create_rmts_das_datasets(
     other_prefix = other_feat_str[0]
 
     sample_count = 0 
-    for im_path in im_paths:
+
+    # Force there to be "samples" overall sames/overall differents and 
+    # "samples" local sames and local differents
+    overall_sames = 0
+    overall_differents = 0
+    local_sames = 0
+    local_differents = 0
+
+    for _, im_path in enumerate(im_paths):
         image_dict = stim_dict[im_path]
 
         analyzed_sample_bool = image_dict[f"{analyzed_prefix}1"] == image_dict[f"{analyzed_prefix}2"]
@@ -1610,25 +1662,44 @@ def create_rmts_das_datasets(
         other_display_bool = image_dict[f"display1-{other_prefix}"] == image_dict[f"display2-{other_prefix}"]
 
         options = []
-        if analyzed_sample_bool and other_sample_bool:
-            # Same: Create a CF for Different
-            options.append("Same-Sample")
-        if analyzed_display_bool and other_display_bool:
-            # Same: Create a CF for Different
-            options.append("Same-Display")
-        if (not analyzed_sample_bool) and other_sample_bool:
-            # Different: Create a CF for Same
-            options.append("Different-Sample")
-        if (not analyzed_display_bool) and other_display_bool:
-            # Different: Create a CF for Same
-            options.append("Different-Display")
+        if local_sames < samples:
+            if analyzed_sample_bool and other_sample_bool:
+                # Same: Create a CF for Different
+                options.append("Same-Sample")
+            if analyzed_display_bool and other_display_bool:
+                # Same: Create a CF for Different
+                options.append("Same-Display")
+        if local_differents < samples:
+            if (not analyzed_sample_bool) and other_sample_bool:
+                # Different: Create a CF for Same
+                options.append("Different-Sample")
+            if (not analyzed_display_bool) and other_display_bool:
+                # Different: Create a CF for Same
+                options.append("Different-Display")
         
         if len(options) > 0:
+
+            if "same" in im_path:
+                if overall_sames == samples:
+                    continue
+                else:
+                    overall_sames += 1
+
+            else:
+                if overall_differents == samples:
+                    continue
+                else:
+                    overall_differents += 1
+
             cf_type = np.random.choice(options)
 
-            idx = im_path.split("/")[-1][:-4]
+            if "Same" in cf_type:
+                local_sames += 1
+            else:
+                local_differents += 1
+
             base_dir = os.path.join(
-                subspace_imgs_path, mode, f"set_{idx}"
+                subspace_imgs_path, mode, f"set_{sample_count}"
             )
             os.makedirs(base_dir, exist_ok=True)
 
@@ -1637,13 +1708,10 @@ def create_rmts_das_datasets(
             shutil.copy(base_path, f"{base_dir}/base.png")
 
             im, cf_dict = generate_rmts_counterfactual(image_dict, cf_type, analysis, feature_dict, num_patch, patch_size, obj_size)
-            
-            datadict[f"set_{idx}"] = cf_dict
-            im.save(f"{base_dir}/counterfactual.png")
+            datadict[f"set_{sample_count}"] = cf_dict
 
             sample_count += 1
-            if sample_count > samples:
-                break
+            im.save(f"{base_dir}/counterfactual.png")
     
     with open(f"{subspace_imgs_path}/{mode}/datadict.pkl", "wb") as handle:
         pkl.dump(datadict, handle, protocol=pkl.HIGHEST_PROTOCOL)
