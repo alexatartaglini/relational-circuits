@@ -191,15 +191,20 @@ def model_train_parser(parser):
         default=False,
         help="Train CLIP ViT",
     )
+    parser.add_argument(
+        "--active_forgetting",
+        action="store_true",
+        default=False,
+        help="Active forgetting on patch embeddings"
+    )
 
     return parser.parse_args()
 
 
 def model_probe_parser(parser):
     parser.add_argument(
-        "-m",
-        "--model_type",
-        help="Model to train: vit, clip_vit.",
+        "--pretrain",
+        help="Pretrain regimen to train: clip, dino, imagenet, scratch.",
         type=str,
         required=True,
     )
@@ -210,17 +215,16 @@ def model_probe_parser(parser):
         "--obj_size", type=int, default=32, help="Size of objects (eg. 32 or 64)."
     )
     parser.add_argument(
-        "--model_path",
+        "--run_id",
         default=None,
-        help="Path to state dict to probe.",
+        help="ID of specific model to probe.",
     )
 
     parser.add_argument(
-        "-ds",
-        "--dataset_str",
+        "--compositional",
         required=False,
-        help="Names of the directory containing stimuli",
-        default="mts/aligned/N_32/trainsize_6400_256-256-256",
+        help="Number of combinations in train set, if some are held out",
+        default=-1,
     )
     parser.add_argument(
         "--optim",
@@ -240,6 +244,9 @@ def model_probe_parser(parser):
     )
     parser.add_argument(
         "--seed", type=int, default=0, help="If not given, picks random seed."
+    )
+    parser.add_argument(
+        "--datasize", type=int, default=2000, help="Number of examples in train/val set"
     )
     parser.add_argument(
         "--alpha", type=float, default=1.0, help="Multiplier on intervention vector"

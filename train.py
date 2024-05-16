@@ -35,51 +35,70 @@ class EarlyStopper:
 
 
 def compute_auxiliary_loss(
-    hidden_states, data, probes, probe_layer, criterion, task, device="cuda"
+    hidden_states, data, probes, probe_layer, criterion, task, obj_size, device="cuda"
 ):
+    """Compute an auxiliary loss that encourages separate linear subspaces for shape and color
+    Half of the embedding of each object patch should encode one property, the other half should encode the other
+    Train two probes, one for each property, as you train the model in order to encourage this linear subspace
+    structure
+    """
+
+    # Extract the embeddings from the layer in which you wish to encourage linear subspaces
     input_embeds = hidden_states[probe_layer]
+
+    # Get probes, and set relevant dimensionalities
     hidden_dim = input_embeds.shape[-1]
     probe_dim = int(hidden_dim / 2)
-
+    batch_size = len(data["shape_1"])
     shape_probe, color_probe = probes
 
-    # get each stream individually: 4 patches per object
+    # Number of patches is determined by object size
+    if obj_size == 32:
+        num_patches = 4
+    elif obj_size == 16:
+        num_patches = 1
+
+    # Ensure correct dimensionality of "stream" information
+    assert len(data["stream_1"]) == batch_size
+    assert data["stream_1"][0].shape[0] == num_patches
+
+    # Probe each stream individually: num_patches patches per object
     states_1 = input_embeds[
-        torch.arange(len(data["stream_1"])).repeat_interleave(4),
+        torch.arange(batch_size).repeat_interleave(num_patches),
         data["stream_1"].reshape(-1),
     ]
     states_2 = input_embeds[
-        torch.arange(len(data["stream_2"])).repeat_interleave(4),
+        torch.arange(batch_size).repeat_interleave(num_patches),
         data["stream_2"].reshape(-1),
     ]
 
-    shapes_1 = data["shape_1"].repeat_interleave(4)
-    shapes_2 = data["shape_2"].repeat_interleave(4)
+    # shape and color labels are maintained for each patch within an object
+    shapes_1 = data["shape_1"].repeat_interleave(num_patches)
+    shapes_2 = data["shape_2"].repeat_interleave(num_patches)
 
-    colors_1 = data["color_1"].repeat_interleave(4)
-    colors_2 = data["color_2"].repeat_interleave(4)
+    colors_1 = data["color_1"].repeat_interleave(num_patches)
+    colors_2 = data["color_2"].repeat_interleave(num_patches)
 
     states = torch.cat((states_1, states_2))
     shapes = torch.cat((shapes_1, shapes_2)).to(device)
-
     colors = torch.cat((colors_1, colors_2)).to(device)
 
-    # Add RMTS Display objects to train probe
+    # Add RMTS Display objects to train probe, if those are available
     if task == "rmts":
         display_states_1 = input_embeds[
-            torch.arange(len(data["display_stream_1"])).repeat_interleave(4),
+            torch.arange(batch_size).repeat_interleave(num_patches),
             data["display_stream_1"].reshape(-1),
         ]
         display_states_2 = input_embeds[
-            torch.arange(len(data["display_stream_2"])).repeat_interleave(4),
+            torch.arange(batch_size).repeat_interleave(num_patches),
             data["display_stream_2"].reshape(-1),
         ]
 
-        display_shapes_1 = data["display_shape_1"].repeat_interleave(4)
-        display_shapes_2 = data["display_shape_2"].repeat_interleave(4)
+        display_shapes_1 = data["display_shape_1"].repeat_interleave(num_patches)
+        display_shapes_2 = data["display_shape_2"].repeat_interleave(num_patches)
 
-        display_colors_1 = data["display_color_1"].repeat_interleave(4)
-        display_colors_2 = data["display_color_2"].repeat_interleave(4)
+        display_colors_1 = data["display_color_1"].repeat_interleave(num_patches)
+        display_colors_2 = data["display_color_2"].repeat_interleave(num_patches)
 
         states = torch.cat((states, display_states_1, display_states_2))
         shapes = torch.cat(
@@ -94,6 +113,12 @@ def compute_auxiliary_loss(
     assert torch.all(colors >= 0)
     assert torch.all(shapes < 16)
     assert torch.all(shapes >= 0)
+
+    # Assert that states has the right shape
+    if num_patches == 1:
+        assert states.shape[0] == batch_size and states.shape[1] == 768
+    elif num_patches == 4:
+        assert states.shape[0] == batch_size * 4 and states.shape[1] == 768
 
     # Run shape probe on half of the embedding, color probe on other half, ensures nonoverlapping subspaces
     shape_outs = shape_probe(states[:, :probe_dim])
@@ -164,7 +189,13 @@ def train_model_epoch(
 
             if args.auxiliary_loss:
                 aux_loss, shape_acc, color_acc = compute_auxiliary_loss(
-                    outputs.hidden_states, d, probes, probe_layer, criterion, task
+                    outputs.hidden_states,
+                    d,
+                    probes,
+                    probe_layer,
+                    criterion,
+                    task,
+                    args.obj_size,
                 )
 
                 loss += aux_loss[0]
@@ -177,6 +208,12 @@ def train_model_epoch(
 
         running_loss += loss.detach().item() * inputs.size(0)
         running_acc += acc * inputs.size(0)
+
+    if args.active_forgetting:
+        # Reset the patch projection at every epoch
+        nn.init.xavier_uniform_(
+            model.vit.embeddings.patch_embeddings.projection.weight.data
+        )
 
     epoch_loss = running_loss / dataset_size
     epoch_acc = running_acc / dataset_size
