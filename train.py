@@ -114,11 +114,17 @@ def compute_auxiliary_loss(
     assert torch.all(shapes < 16)
     assert torch.all(shapes >= 0)
 
-    # Assert that states has the right shape
-    if num_patches == 1:
-        assert states.shape[0] == batch_size and states.shape[1] == 768
-    elif num_patches == 4:
-        assert states.shape[0] == batch_size * 4 and states.shape[1] == 768
+    # Assert that states has the right shape: (N objects * N patches * batch_size, 768)
+    if task == "discrimination":
+        if num_patches == 1:
+            assert states.shape[0] == 2 * batch_size and states.shape[1] == 768
+        elif num_patches == 4:
+            assert states.shape[0] == 8 * batch_size and states.shape[1] == 768
+    else:
+        if num_patches == 1:
+            assert states.shape[0] == 8 * batch_size and states.shape[1] == 768
+        elif num_patches == 4:
+            assert states.shape[0] == 16 * batch_size and states.shape[1] == 768
 
     # Run shape probe on half of the embedding, color probe on other half, ensures nonoverlapping subspaces
     shape_outs = shape_probe(states[:, :probe_dim])
@@ -126,8 +132,8 @@ def compute_auxiliary_loss(
 
     aux_loss = (criterion(shape_outs, shapes) + criterion(color_outs, colors),)
 
-    shape_acc = accuracy_score(shapes.to("cpu"), shape_outs.to("cpu").argmax(1))
-    color_acc = accuracy_score(colors.to("cpu"), color_outs.to("cpu").argmax(1))
+    shape_acc = accuracy_score(shapes.to("cpu"), shape_outs.to("cpu").argmax(-1))
+    color_acc = accuracy_score(colors.to("cpu"), color_outs.to("cpu").argmax(-1))
 
     return (
         aux_loss,
@@ -288,7 +294,13 @@ def evaluation(
 
             if args.auxiliary_loss:
                 aux_loss, shape_acc, color_acc = compute_auxiliary_loss(
-                    outputs.hidden_states, d, probes, probe_layer, criterion, task
+                    outputs.hidden_states,
+                    d,
+                    probes,
+                    probe_layer,
+                    criterion,
+                    task,
+                    args.obj_size,
                 )
                 loss += aux_loss[0]
                 running_shape_acc_val += shape_acc * inputs.size(0)
@@ -594,6 +606,7 @@ if __name__ == "__main__":
             num_colors=16,
             num_classes=2,
             probe_for=probe_value,
+            obj_size=obj_size,
             split_embed=True,
         )
 
@@ -695,9 +708,15 @@ if __name__ == "__main__":
                     transform=transform,
                     task=task,
                 )
-                test_iid_dataloader = DataLoader(test_dataset, batch_size=512, shuffle=True)
-                
-                labels = [f"{dataset_str}_val", f"{dataset_str}_test_iid", f"{dataset_str}_test"]
+                test_iid_dataloader = DataLoader(
+                    test_dataset, batch_size=512, shuffle=True
+                )
+
+                labels = [
+                    f"{dataset_str}_val",
+                    f"{dataset_str}_test_iid",
+                    f"{dataset_str}_test",
+                ]
                 dataloaders = [val_dataloader, test_iid_dataloader, test_dataloader]
                 datasets = [val_dataset, test_iid_dataset, test_dataset]
             else:

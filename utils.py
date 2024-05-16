@@ -227,20 +227,30 @@ def get_model_probes(
     probe_for,
     split_embed=False,
     device="cuda",
-    num_patches=4,
+    obj_size=32,
 ):
     if split_embed:
         probe_dim = int(model.config.hidden_size / 2)
     else:
         probe_dim = int(model.config.hidden_size)
 
+    # For aux loss, enforce linear subspaces in each token individually
     if probe_for == "auxiliary_loss":
         return (
             nn.Linear(probe_dim, num_shapes).to(device),
             nn.Linear(probe_dim, num_colors).to(device),
         )
 
-    # For aux loss, enforce linear subspaces in each token individually
+    # number of patches is determined by object size
+    if obj_size == 32:
+        num_patches = 4
+    else:
+        num_patches = 1
+
+    # Probing for intermediate judgements requires 2 objects
+    if probe_for == "intermediate_judgements":
+        num_patches = num_patches * 2
+
     # For the rest, doesn't matter, probe the whole set of sequences
     probe_dim = probe_dim * num_patches
     if probe_for == "shape":
