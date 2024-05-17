@@ -35,7 +35,15 @@ class EarlyStopper:
 
 
 def compute_auxiliary_loss(
-    hidden_states, data, probes, probe_layer, criterion, task, obj_size, device="cuda"
+    hidden_states,
+    data,
+    probes,
+    probe_layer,
+    criterion,
+    task,
+    obj_size,
+    patch_size,
+    device="cuda",
 ):
     """Compute an auxiliary loss that encourages separate linear subspaces for shape and color
     Half of the embedding of each object patch should encode one property, the other half should encode the other
@@ -53,9 +61,9 @@ def compute_auxiliary_loss(
     shape_probe, color_probe = probes
 
     # Number of patches is determined by object size
-    if obj_size == 32:
+    if obj_size / patch_size == 2:
         num_patches = 4
-    elif obj_size == 16:
+    elif obj_size / patch_size == 1:
         num_patches = 1
 
     # Ensure correct dimensionality of "stream" information
@@ -202,6 +210,7 @@ def train_model_epoch(
                     criterion,
                     task,
                     args.obj_size,
+                    args.patch_size,
                 )
 
                 loss += aux_loss[0]
@@ -301,6 +310,7 @@ def evaluation(
                     criterion,
                     task,
                     args.obj_size,
+                    args.patch_size,
                 )
                 loss += aux_loss[0]
                 running_shape_acc_val += shape_acc * inputs.size(0)
@@ -607,6 +617,7 @@ if __name__ == "__main__":
             num_classes=2,
             probe_for=probe_value,
             obj_size=obj_size,
+            patch_size=patch_size,
             split_embed=True,
         )
 
