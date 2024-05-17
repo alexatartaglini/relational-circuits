@@ -61,9 +61,9 @@ def compute_auxiliary_loss(
     shape_probe, color_probe = probes
 
     # Number of patches is determined by object size
-    if obj_size / patch_size == 2:
+    if obj_size // patch_size == 2:
         num_patches = 4
-    elif obj_size / patch_size == 1:
+    elif obj_size // patch_size == 1:
         num_patches = 1
 
     # Ensure correct dimensionality of "stream" information
@@ -130,7 +130,7 @@ def compute_auxiliary_loss(
             assert states.shape[0] == 8 * batch_size and states.shape[1] == 768
     else:
         if num_patches == 1:
-            assert states.shape[0] == 8 * batch_size and states.shape[1] == 768
+            assert states.shape[0] == 4 * batch_size and states.shape[1] == 768
         elif num_patches == 4:
             assert states.shape[0] == 16 * batch_size and states.shape[1] == 768
 
