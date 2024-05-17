@@ -228,7 +228,7 @@ def get_model_probes(
     split_embed=False,
     device="cuda",
     obj_size=32,
-    patch_size,
+    patch_size=32,
 ):
     if split_embed:
         probe_dim = int(model.config.hidden_size / 2)
@@ -243,7 +243,7 @@ def get_model_probes(
         )
 
     # number of patches is determined by object size
-    if obj_size/patch_size == 2:
+    if obj_size / patch_size == 2:
         num_patches = 4
     else:
         num_patches = 1
