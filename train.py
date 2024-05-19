@@ -608,9 +608,9 @@ if __name__ == "__main__":
     attention_loss = args.attention_loss
     attn_layer = args.attn_layer
     
-    if isinstance(attn_layer, str):
+    if isinstance(attn_layer[0], str):
         #attn_layer = list(map(int, attn_layer[0].split()))
-        attn_layer = attn_layer.replace("[", "").replace("]", "").replace(" ", "").split(",")
+        attn_layer = attn_layer[0].replace("[", "").replace("]", "").replace(" ", "").split(",")
         attn_layer = [int(i) for i in attn_layer]
         args.attn_layer = attn_layer
     
