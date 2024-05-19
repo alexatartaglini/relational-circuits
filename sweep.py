@@ -49,6 +49,19 @@ parser.add_argument(
 parser.add_argument("--probe_layer", default=-1, help="Layer to probe")
 
 parser.add_argument(
+    "--attention_loss",
+    action="store_true",
+    default=False,
+    help="Train with attn loss",
+)
+parser.add_argument(
+    "--attn_layer", default=None, nargs="*", type=int, help="Layer(s) for attn loss"
+)
+parser.add_argument(
+    "--n_attn_head", default=0, type=int, help="Num attn heads in each layer for attn loss"
+)
+
+parser.add_argument(
     "--pretrained",
     action="store_true",
     default=False,
@@ -110,10 +123,10 @@ if args.ood:
 if args.auxiliary_loss:
     commands += ["--auxiliary_loss"]
     sweep_name += " Aux Loss"
-
-if args.active_forgetting:
-    commands += ["--active_forgetting"]
-    sweep_name += " Active Forgetting"
+    
+if args.attention_loss:
+    commands += ["--attention_loss"]
+    sweep_name += " Attn Loss"
 
 if args.feature_extract:
     commands += ["--feature_extract"]
@@ -146,8 +159,10 @@ sweep_configuration = {
         "model_type": {"values": [args.model_type]},
         "batch_size": {"values": [128]},
         "probe_layer": {"values": [args.probe_layer]},
-        "compositional": {"values": [32]},
+        "compositional": {"values": [-1, 32]},
         "pretrain_path": {"values": [args.pretrain_path]},
+        "attn_layer": {"values": [args.attn_layer]},
+        "n_attn_head": {"values": [args.n_attn_head]},
     },
 }
 

@@ -11,6 +11,7 @@ import pandas as pd
 import sys
 import utils
 from argparsers import model_train_parser
+from PIL import Image
 
 
 os.chdir(sys.path[0])
@@ -34,6 +35,30 @@ class EarlyStopper:
         return False
 
 
+def compute_attention_loss(
+    attns,
+    data,
+    layers,
+    heads,
+    criterion,
+    obj_size,
+    patch_size,
+    device="cuda",
+):
+    input_attns = torch.cat(tuple(attns[i] for i in layers), 0)[:, heads, :, :]
+    
+    obj1_pos = data["stream_1"]
+    obj2_pos = data["stream_2"]
+    
+    target_pattern = torch.zeros((input_attns.shape[-1], input_attns.shape[-1])).to(device)
+    target_pattern[obj1_pos, obj1_pos] = 1.0
+    target_pattern[obj2_pos, obj2_pos] = 1.0
+    target_pattern = target_pattern.unsqueeze(0).repeat(len(heads), 1, 1)
+    target_pattern = target_pattern.unsqueeze(0).repeat(input_attns.shape[0], 1, 1, 1)
+    
+    loss = criterion(input_attns, target_pattern)
+    return loss
+    
 def compute_auxiliary_loss(
     hidden_states,
     data,
@@ -160,6 +185,8 @@ def train_model_epoch(
     device="cuda",
     probes=None,
     probe_layer=None,
+    attn_layer=None,
+    attn_head=None,
     task="discrimination",
 ):
     """Performs one training epoch
@@ -191,11 +218,19 @@ def train_model_epoch(
 
             if "clip" in args.model_type:
                 # Extract logits from clip model
-                outputs = model(inputs, output_hidden_states=True)
+                outputs = model(
+                    inputs, 
+                    output_hidden_states=args.auxiliary_loss, 
+                    output_attentions=args.attention_loss
+                )
                 output_logits = outputs.image_embeds
             else:
-                # Extarct logits from VitForImageClassification
-                outputs = model(inputs, output_hidden_states=True)
+                # Extract logits from VitForImageClassification
+                outputs = model(
+                    inputs, 
+                    output_hidden_states=args.auxiliary_loss, 
+                    output_attentions=args.attention_loss
+                )
                 output_logits = outputs.logits
 
             loss = criterion(output_logits, labels)
@@ -217,6 +252,18 @@ def train_model_epoch(
 
                 running_shape_acc += shape_acc * inputs.size(0)
                 running_color_acc += color_acc * inputs.size(0)
+            elif args.attention_loss:
+                attn_loss = compute_attention_loss(
+                    outputs.attentions,
+                    d,
+                    attn_layer,
+                    attn_head,
+                    criterion,
+                    args.obj_size,
+                    args.patch_size,
+                )
+                
+                loss += attn_loss
 
             loss.backward()
             optimizer.step()
@@ -262,6 +309,8 @@ def evaluation(
     device="cuda",
     probes=None,
     probe_layer=None,
+    attn_layer=None,
+    attn_head=None,
     task="discrimination",
 ):
     """Evaluate model on val set
@@ -288,11 +337,19 @@ def evaluation(
 
             if "clip" in args.model_type:
                 # Extract logits from clip model
-                outputs = model(inputs, output_hidden_states=True)
+                outputs = model(
+                    inputs, 
+                    output_hidden_states=args.auxiliary_loss, 
+                    output_attentions=args.attention_loss
+                )
                 output_logits = outputs.image_embeds
             else:
                 # Extarct logits from VitForImageClassification
-                outputs = model(inputs, output_hidden_states=True)
+                outputs = model(
+                    inputs, 
+                    output_hidden_states=args.auxiliary_loss, 
+                    output_attentions=args.attention_loss
+                )
                 output_logits = outputs.logits
 
             loss = criterion(output_logits, labels)
@@ -315,14 +372,26 @@ def evaluation(
                 loss += aux_loss[0]
                 running_shape_acc_val += shape_acc * inputs.size(0)
                 running_color_acc_val += color_acc * inputs.size(0)
+            elif args.attention_loss:
+                attn_loss = compute_attention_loss(
+                    outputs.attentions,
+                    d,
+                    attn_layer,
+                    attn_head,
+                    criterion,
+                    args.obj_size,
+                    args.patch_size,
+                )
+                
+                loss += attn_loss
 
             running_acc_val += acc * inputs.size(0)
             running_loss_val += loss.detach().item() * inputs.size(0)
             running_roc_auc += roc_auc * inputs.size(0)
 
-        epoch_loss_val = running_loss_val / len(val_dataset)
-        epoch_acc_val = running_acc_val / len(val_dataset)
-        epoch_roc_auc = running_roc_auc / len(val_dataset)
+        epoch_loss_val = running_loss_val / 6400 #len(val_dataset)
+        epoch_acc_val = running_acc_val / 6400 #len(val_dataset)
+        epoch_roc_auc = running_roc_auc / 6400 #len(val_dataset)
 
         print()
         print("Val loss: {:.4f}".format(epoch_loss_val))
@@ -364,6 +433,8 @@ def train_model(
     ood_dataloaders=[],
     probes=None,
     probe_layer=None,
+    attn_layer=None,
+    attn_head=None,
     early_stopping=False,
     task="discrimination",
 ):
@@ -408,6 +479,8 @@ def train_model(
             device=device,
             probes=probes,
             probe_layer=probe_layer,
+            attn_layer=attn_layer,
+            attn_head=attn_head,
             task=task,
         )
 
@@ -443,6 +516,8 @@ def train_model(
             device=device,
             probes=probes,
             probe_layer=probe_layer,
+            attn_layer=attn_layer,
+            attn_head=attn_head,
             task=task,
         )
 
@@ -464,6 +539,8 @@ def train_model(
             device=device,
             probes=probes,
             probe_layer=probe_layer,
+            attn_layer=attn_layer,
+            attn_head=attn_head,
             task=task,
         )
 
@@ -488,6 +565,8 @@ def train_model(
                 device=device,
                 probes=probes,
                 probe_layer=probe_layer,
+                attn_layer=attn_layer,
+                attn_head=attn_head,
                 task=task,
             )
 
@@ -533,6 +612,17 @@ if __name__ == "__main__":
     model_type = args.model_type
     patch_size = args.patch_size
     obj_size = args.obj_size
+    
+    attention_loss = args.attention_loss
+    attn_layer = args.attn_layer
+    
+    if isinstance(attn_layer[0], str):
+        #attn_layer = list(map(int, attn_layer[0].split()))
+        attn_layer = attn_layer[0].replace("[", "").replace("]", "").replace(" ", "").split(",")
+        attn_layer = [int(i) for i in attn_layer]
+        args.attn_layer = attn_layer
+    
+    attn_head = np.random.choice(list(range(12)), size=args.n_attn_head, replace=False)
 
     auxiliary_loss = args.auxiliary_loss
     probe_layer = args.probe_layer
@@ -653,10 +743,9 @@ if __name__ == "__main__":
     log_dir = f"models/{pretrain_type}/{dataset_str}_{obj_size}"
     os.makedirs(log_dir, exist_ok=True)
 
-    if not os.path.exists(data_dir):
-        raise ValueError("Train Data Directory does not exist")
-
     if not args.evaluate:
+        if not os.path.exists(data_dir):
+            raise ValueError("Train Data Directory does not exist")
         train_dataset = SameDifferentDataset(
             data_dir + "/train",
             transform=transform,
@@ -692,7 +781,11 @@ if __name__ == "__main__":
         ood_dirs = ["64-64-64", "64-64-64", "64-64-64"]
 
         for ood_label, ood_dir in zip(ood_labels, ood_dirs):
-            ood_dir = f"stimuli/NOISE_ood/{ood_label}/aligned/N_{obj_size}/trainsize_6400_{ood_dir}"
+            if "mts" in dataset_str:
+                ood_dir = f"stimuli/mts_ood/{ood_label}/aligned/N_{obj_size}/trainsize_6400_{ood_dir}"
+            else:
+                ood_dir = f"stimuli/NOISE_ood/{ood_label}/aligned/N_{obj_size}/trainsize_6400_{ood_dir}"
+                
             ood_dataset = SameDifferentDataset(
                 ood_dir + "/val",
                 transform=transform,
@@ -723,6 +816,7 @@ if __name__ == "__main__":
                     test_dataset, batch_size=512, shuffle=True
                 )
 
+                '''
                 labels = [
                     f"{dataset_str}_val",
                     f"{dataset_str}_test_iid",
@@ -730,6 +824,10 @@ if __name__ == "__main__":
                 ]
                 dataloaders = [val_dataloader, test_iid_dataloader, test_dataloader]
                 datasets = [val_dataset, test_iid_dataset, test_dataset]
+                '''
+                labels = [f"{dataset_str}_test_iid"]
+                dataloaders = [test_iid_dataloader]
+                datasets = [test_iid_dataset]
             else:
                 labels = [f"{dataset_str}_val", f"{dataset_str}_test"]
                 dataloaders = [val_dataloader, test_dataloader]
@@ -794,6 +892,8 @@ if __name__ == "__main__":
             "optimizer": optim,
             "num_epochs": num_epochs,
             "batch_size": batch_size,
+            "attn_head": attn_head,
+            "attn_layer": attn_layer,
         }
 
         # Initialize Weights & Biases project
@@ -836,6 +936,8 @@ if __name__ == "__main__":
             ood_dataloaders=ood_dataloaders,
             probes=probes,
             probe_layer=args.probe_layer,
+            attn_layer=attn_layer,
+            attn_head=attn_head,
             task=task,
         )
         wandb.finish()
