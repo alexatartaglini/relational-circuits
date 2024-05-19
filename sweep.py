@@ -155,8 +155,8 @@ sweep_configuration = {
         "probe_layer": {"values": [args.probe_layer]},
         "compositional": {"values": [-1, 32]},
         "pretrain_path": {"values": [args.pretrain_path]},
-        "attn_layer": {"values": args.attn_layer},
-        "n_attn_head": {"values": args.n_attn_head},
+        "attn_layer": {"values": [args.attn_layer]},
+        "n_attn_head": {"values": [args.n_attn_head]},
     },
 }
 
