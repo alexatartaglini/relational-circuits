@@ -118,8 +118,8 @@ if args.auxiliary_loss:
     commands += ["--auxiliary_loss"]
     sweep_name += " Aux Loss"
     
-if args.attn_loss:
-    commands += ["--attn_loss"]
+if args.attention_loss:
+    commands += ["--attention_loss"]
     sweep_name += " Attn Loss"
 
 if args.feature_extract:
