@@ -54,7 +54,7 @@ def model_train_parser(parser):
     )
     
     parser.add_argument(
-        "--attn_loss",
+        "--attention_loss",
         action="store_true",
         default=False,
         help="Train model with attn loss",

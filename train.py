@@ -607,6 +607,11 @@ if __name__ == "__main__":
     
     attention_loss = args.attention_loss
     attn_layer = args.attn_layer
+    
+    if isinstance(attn_layer[0], str):
+        attn_layer = list(map(int, attn_layer[0].split()))
+        args.attn_layer = attn_layer
+    
     attn_head = np.random.choice(list(range(12)), size=args.n_attn_head, replace=False)
 
     auxiliary_loss = args.auxiliary_loss
