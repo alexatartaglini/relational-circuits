@@ -40,6 +40,12 @@ parser.add_argument(
     default=False,
     help="Train with probes to induce subspaces",
 )
+parser.add_argument(
+    "--active_forgetting",
+    action="store_true",
+    default=False,
+    help="Train with active forgetting",
+)
 parser.add_argument("--probe_layer", default=-1, help="Layer to probe")
 
 parser.add_argument(
@@ -105,6 +111,10 @@ if args.auxiliary_loss:
     commands += ["--auxiliary_loss"]
     sweep_name += " Aux Loss"
 
+if args.active_forgetting:
+    commands += ["--active_forgetting"]
+    sweep_name += " Active Forgetting"
+
 if args.feature_extract:
     commands += ["--feature_extract"]
     sweep_name += " Feature Extract"
@@ -136,8 +146,8 @@ sweep_configuration = {
         "model_type": {"values": [args.model_type]},
         "batch_size": {"values": [128]},
         "probe_layer": {"values": [args.probe_layer]},
-        "compositional": {"values": [-1, 32]},
-        "pretrain_path": {"values": [args.pretrain_path]}
+        "compositional": {"values": [32]},
+        "pretrain_path": {"values": [args.pretrain_path]},
     },
 }
 

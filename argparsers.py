@@ -195,7 +195,7 @@ def model_train_parser(parser):
         "--active_forgetting",
         action="store_true",
         default=False,
-        help="Active forgetting on patch embeddings"
+        help="Active forgetting on patch embeddings",
     )
 
     return parser.parse_args()
@@ -416,7 +416,7 @@ def das_parser(parser):
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate.")
 
     parser.add_argument(
-        "--mask_lr", type=float, default=1e-1, help="Learning rate for mask."
+        "--mask_lr", type=float, default=1e-2, help="Learning rate for mask."
     )
 
     parser.add_argument(
@@ -477,6 +477,7 @@ def abstraction_baseline_parser(parser):
     )
     parser.add_argument(
         "--compositional",
+        type=int,
         required=False,
         help="Compositional dataset",
         default=-1,
