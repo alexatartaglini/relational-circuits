@@ -43,7 +43,7 @@ parser.add_argument(
 parser.add_argument("--probe_layer", default=-1, help="Layer to probe")
 
 parser.add_argument(
-    "--attn_loss",
+    "--attention_loss",
     action="store_true",
     default=False,
     help="Train with attn loss",
