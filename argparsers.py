@@ -47,6 +47,12 @@ def model_train_parser(parser):
         help="Train with auxiliary loss to induce subspaces.",
     )
     parser.add_argument(
+        "--auxiliary_loss_control",
+        action="store_true",
+        default=False,
+        help="Train with auxiliary loss control to probe for token identity.",
+    )
+    parser.add_argument(
         "--evaluate",
         action="store_true",
         default=False,

@@ -41,10 +41,10 @@ parser.add_argument(
     help="Train with probes to induce subspaces",
 )
 parser.add_argument(
-    "--active_forgetting",
+    "--auxiliary_loss_control",
     action="store_true",
     default=False,
-    help="Train with active forgetting",
+    help="Train with control probe",
 )
 parser.add_argument("--probe_layer", default=-1, help="Layer to probe")
 
@@ -58,7 +58,10 @@ parser.add_argument(
     "--attn_layer", default=None, nargs="*", type=int, help="Layer(s) for attn loss"
 )
 parser.add_argument(
-    "--n_attn_head", default=0, type=int, help="Num attn heads in each layer for attn loss"
+    "--n_attn_head",
+    default=0,
+    type=int,
+    help="Num attn heads in each layer for attn loss",
 )
 
 parser.add_argument(
@@ -120,10 +123,14 @@ else:
 if args.ood:
     commands += ["--ood"]
 
+if args.auxiliary_loss_control:
+    commands += ["--auxiliary_loss_control"]
+    sweep_name += " Aux Loss Control"
+
 if args.auxiliary_loss:
     commands += ["--auxiliary_loss"]
     sweep_name += " Aux Loss"
-    
+
 if args.attention_loss:
     commands += ["--attention_loss"]
     sweep_name += " Attn Loss"

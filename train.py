@@ -46,19 +46,22 @@ def compute_attention_loss(
     device="cuda",
 ):
     input_attns = torch.cat(tuple(attns[i] for i in layers), 0)[:, heads, :, :]
-    
+
     obj1_pos = data["stream_1"]
     obj2_pos = data["stream_2"]
-    
-    target_pattern = torch.zeros((input_attns.shape[-1], input_attns.shape[-1])).to(device)
+
+    target_pattern = torch.zeros((input_attns.shape[-1], input_attns.shape[-1])).to(
+        device
+    )
     target_pattern[obj1_pos, obj1_pos] = 1.0
     target_pattern[obj2_pos, obj2_pos] = 1.0
     target_pattern = target_pattern.unsqueeze(0).repeat(len(heads), 1, 1)
     target_pattern = target_pattern.unsqueeze(0).repeat(input_attns.shape[0], 1, 1, 1)
-    
+
     loss = criterion(input_attns, target_pattern)
     return loss
-    
+
+
 def compute_auxiliary_loss(
     hidden_states,
     data,
@@ -175,6 +178,100 @@ def compute_auxiliary_loss(
     )
 
 
+def compute_auxiliary_loss_control(
+    hidden_states,
+    data,
+    probes,
+    probe_layer,
+    criterion,
+    task,
+    obj_size,
+    patch_size,
+    device="cuda",
+):
+    """Compute an auxiliary loss control that probes for object identity (unique combos of shape and color)"""
+
+    # Extract the embeddings from the layer in which you wish to encourage linear subspaces
+    input_embeds = hidden_states[probe_layer]
+
+    # Get probes, and set relevant dimensionalities
+    batch_size = len(data["shape_1"])
+    object_probe = probes[0]
+
+    # Number of patches is determined by object size
+    if obj_size // patch_size == 2:
+        num_patches = 4
+    elif obj_size // patch_size == 1:
+        num_patches = 1
+
+    # Ensure correct dimensionality of "stream" information
+    assert len(data["stream_1"]) == batch_size
+    assert data["stream_1"][0].shape[0] == num_patches
+
+    # Probe each stream individually: num_patches patches per object
+    states_1 = input_embeds[
+        torch.arange(batch_size).repeat_interleave(num_patches),
+        data["stream_1"].reshape(-1),
+    ]
+    states_2 = input_embeds[
+        torch.arange(batch_size).repeat_interleave(num_patches),
+        data["stream_2"].reshape(-1),
+    ]
+
+    # object labels are maintained for each patch within an object
+    object_1 = data["object_1"].repeat_interleave(num_patches)
+    object_2 = data["object_2"].repeat_interleave(num_patches)
+
+    states = torch.cat((states_1, states_2))
+    objects = torch.cat((object_1, object_2)).to(device)
+
+    # Add RMTS Display objects to train probe, if those are available
+    if task == "rmts":
+        display_states_1 = input_embeds[
+            torch.arange(batch_size).repeat_interleave(num_patches),
+            data["display_stream_1"].reshape(-1),
+        ]
+        display_states_2 = input_embeds[
+            torch.arange(batch_size).repeat_interleave(num_patches),
+            data["display_stream_2"].reshape(-1),
+        ]
+
+        display_objects_1 = data["display_object_1"].repeat_interleave(num_patches)
+        display_objects_2 = data["display_object_2"].repeat_interleave(num_patches)
+
+        states = torch.cat((states, display_states_1, display_states_2))
+        objects = torch.cat(
+            (objects, display_objects_1.to(device), display_objects_2.to(device))
+        )
+
+    # Assert that color and shape are within range
+    assert torch.all(objects < 256)
+
+    # Assert that states has the right shape: (N objects * N patches * batch_size, 768)
+    if task == "discrimination":
+        if num_patches == 1:
+            assert states.shape[0] == 2 * batch_size and states.shape[1] == 768
+        elif num_patches == 4:
+            assert states.shape[0] == 8 * batch_size and states.shape[1] == 768
+    else:
+        if num_patches == 1:
+            assert states.shape[0] == 4 * batch_size and states.shape[1] == 768
+        elif num_patches == 4:
+            assert states.shape[0] == 16 * batch_size and states.shape[1] == 768
+
+    # Run shape probe on half of the embedding, color probe on other half, ensures nonoverlapping subspaces
+    object_outs = object_probe(states)
+
+    aux_loss = (criterion(object_outs, objects),)
+
+    object_acc = accuracy_score(objects.to("cpu"), object_outs.to("cpu").argmax(-1))
+
+    return (
+        aux_loss,
+        object_acc,
+    )
+
+
 def train_model_epoch(
     args,
     model,
@@ -205,6 +302,7 @@ def train_model_epoch(
     running_acc = 0.0
     running_shape_acc = 0.0
     running_color_acc = 0.0
+    running_obj_acc = 0.0
 
     # Iterate over data.
     for bi, (d, f) in enumerate(data_loader):
@@ -216,20 +314,22 @@ def train_model_epoch(
         with torch.set_grad_enabled(True):
             optimizer.zero_grad()
 
+            output_hidden_states = args.auxiliary_loss or args.auxiliary_loss_control
+
             if "clip" in args.model_type:
                 # Extract logits from clip model
                 outputs = model(
-                    inputs, 
-                    output_hidden_states=args.auxiliary_loss, 
-                    output_attentions=args.attention_loss
+                    inputs,
+                    output_hidden_states=output_hidden_states,
+                    output_attentions=args.attention_loss,
                 )
                 output_logits = outputs.image_embeds
             else:
                 # Extract logits from VitForImageClassification
                 outputs = model(
-                    inputs, 
-                    output_hidden_states=args.auxiliary_loss, 
-                    output_attentions=args.attention_loss
+                    inputs,
+                    output_hidden_states=output_hidden_states,
+                    output_attentions=args.attention_loss,
                 )
                 output_logits = outputs.logits
 
@@ -252,6 +352,23 @@ def train_model_epoch(
 
                 running_shape_acc += shape_acc * inputs.size(0)
                 running_color_acc += color_acc * inputs.size(0)
+
+            elif args.auxiliary_loss_control:
+                aux_loss, obj_acc = compute_auxiliary_loss_control(
+                    outputs.hidden_states,
+                    d,
+                    probes,
+                    probe_layer,
+                    criterion,
+                    task,
+                    args.obj_size,
+                    args.patch_size,
+                )
+
+                loss += aux_loss[0]
+
+                running_obj_acc += obj_acc * inputs.size(0)
+
             elif args.attention_loss:
                 attn_loss = compute_attention_loss(
                     outputs.attentions,
@@ -262,7 +379,7 @@ def train_model_epoch(
                     args.obj_size,
                     args.patch_size,
                 )
-                
+
                 loss += attn_loss
 
             loss.backward()
@@ -294,6 +411,14 @@ def train_model_epoch(
             "lr": optimizer.param_groups[0]["lr"],
             "shape_acc": epoch_shape_acc,
             "color_acc": epoch_color_acc,
+        }
+    elif args.auxiliary_loss_control:
+        epoch_obj_acc = running_obj_acc / dataset_size
+        return {
+            "loss": epoch_loss,
+            "acc": epoch_acc,
+            "lr": optimizer.param_groups[0]["lr"],
+            "obj_acc": epoch_obj_acc,
         }
 
     return {"loss": epoch_loss, "acc": epoch_acc, "lr": optimizer.param_groups[0]["lr"]}
@@ -330,25 +455,28 @@ def evaluation(
         running_roc_auc = 0.0
         running_shape_acc_val = 0.0
         running_color_acc_val = 0.0
+        running_obj_acc_val = 0.0
 
         for bi, (d, f) in enumerate(val_dataloader):
             inputs = d["pixel_values"].squeeze(1).to(device)
             labels = d["label"].to(device)
 
+            output_hidden_states = args.auxiliary_loss or args.auxiliary_loss_control
+
             if "clip" in args.model_type:
                 # Extract logits from clip model
                 outputs = model(
-                    inputs, 
-                    output_hidden_states=args.auxiliary_loss, 
-                    output_attentions=args.attention_loss
+                    inputs,
+                    output_hidden_states=output_hidden_states,
+                    output_attentions=args.attention_loss,
                 )
                 output_logits = outputs.image_embeds
             else:
                 # Extarct logits from VitForImageClassification
                 outputs = model(
-                    inputs, 
-                    output_hidden_states=args.auxiliary_loss, 
-                    output_attentions=args.attention_loss
+                    inputs,
+                    output_hidden_states=output_hidden_states,
+                    output_attentions=args.attention_loss,
                 )
                 output_logits = outputs.logits
 
@@ -372,6 +500,21 @@ def evaluation(
                 loss += aux_loss[0]
                 running_shape_acc_val += shape_acc * inputs.size(0)
                 running_color_acc_val += color_acc * inputs.size(0)
+
+            elif args.auxiliary_loss_control:
+                aux_loss, obj_acc = compute_auxiliary_loss_control(
+                    outputs.hidden_states,
+                    d,
+                    probes,
+                    probe_layer,
+                    criterion,
+                    task,
+                    args.obj_size,
+                    args.patch_size,
+                )
+                loss += aux_loss[0]
+                running_obj_acc_val += obj_acc * inputs.size(0)
+
             elif args.attention_loss:
                 attn_loss = compute_attention_loss(
                     outputs.attentions,
@@ -382,16 +525,16 @@ def evaluation(
                     args.obj_size,
                     args.patch_size,
                 )
-                
+
                 loss += attn_loss
 
             running_acc_val += acc * inputs.size(0)
             running_loss_val += loss.detach().item() * inputs.size(0)
             running_roc_auc += roc_auc * inputs.size(0)
 
-        epoch_loss_val = running_loss_val / 6400 #len(val_dataset)
-        epoch_acc_val = running_acc_val / 6400 #len(val_dataset)
-        epoch_roc_auc = running_roc_auc / 6400 #len(val_dataset)
+        epoch_loss_val = running_loss_val / 6400  # len(val_dataset)
+        epoch_acc_val = running_acc_val / 6400  # len(val_dataset)
+        epoch_roc_auc = running_roc_auc / 6400  # len(val_dataset)
 
         print()
         print("Val loss: {:.4f}".format(epoch_loss_val))
@@ -411,6 +554,9 @@ def evaluation(
             epoch_color_acc_val = running_color_acc_val / len(val_dataset)
             results["shape_acc"] = epoch_shape_acc_val
             results["color_acc"] = epoch_color_acc_val
+        if args.auxiliary_loss_control:
+            epoch_obj_acc_val = running_obj_acc_val / len(val_dataset)
+            results["obj_acc"] = epoch_obj_acc_val
         return results
 
 
@@ -494,7 +640,8 @@ def train_model(
         if args.auxiliary_loss:
             metric_dict["shape_acc"] = epoch_results["shape_acc"]
             metric_dict["color_acc"] = epoch_results["color_acc"]
-
+        if args.auxiliary_loss_control:
+            metric_dict["obj_acc"] = epoch_results["obj_acc"]
         # Save the model
         if epoch in save_model_epochs and args.checkpoint:
             torch.save(
@@ -527,6 +674,8 @@ def train_model(
         if args.auxiliary_loss:
             metric_dict["val_shape_acc"] = result["shape_acc"]
             metric_dict["val_color_acc"] = result["color_acc"]
+        if args.auxiliary_loss_control:
+            metric_dict["val_obj_acc"] = result["obj_acc"]
 
         print("\nUnseen combinations: \n")
         result = evaluation(
@@ -550,6 +699,8 @@ def train_model(
         if args.auxiliary_loss:
             metric_dict["test_shape_acc"] = result["shape_acc"]
             metric_dict["test_color_acc"] = result["color_acc"]
+        if args.auxiliary_loss_control:
+            metric_dict["test_obj_acc"] = result["obj_acc"]
 
         for ood_label, ood_dataset, ood_dataloader in zip(
             ood_labels, ood_datasets, ood_dataloaders
@@ -612,19 +763,22 @@ if __name__ == "__main__":
     model_type = args.model_type
     patch_size = args.patch_size
     obj_size = args.obj_size
-    
+
     attention_loss = args.attention_loss
     attn_layer = args.attn_layer
-    
+
     if isinstance(attn_layer[0], str):
-        #attn_layer = list(map(int, attn_layer[0].split()))
-        attn_layer = attn_layer[0].replace("[", "").replace("]", "").replace(" ", "").split(",")
+        # attn_layer = list(map(int, attn_layer[0].split()))
+        attn_layer = (
+            attn_layer[0].replace("[", "").replace("]", "").replace(" ", "").split(",")
+        )
         attn_layer = [int(i) for i in attn_layer]
         args.attn_layer = attn_layer
-    
+
     attn_head = np.random.choice(list(range(12)), size=args.n_attn_head, replace=False)
 
     auxiliary_loss = args.auxiliary_loss
+    auxiliary_loss_control = args.auxiliary_loss_control
     probe_layer = args.probe_layer
 
     pretrained = args.pretrained
@@ -696,21 +850,34 @@ if __name__ == "__main__":
     model = model.to(device)  # Move model to GPU if possible
 
     probes = None
-    if auxiliary_loss:
+    if auxiliary_loss or auxiliary_loss_control:
         # If using auxiliary loss, get probes and train them
         # alongside the model
-        probe_value = "auxiliary_loss"
-        probes = utils.get_model_probes(
-            model,
-            num_shapes=16,
-            num_colors=16,
-            num_classes=2,
-            probe_for=probe_value,
-            obj_size=obj_size,
-            patch_size=patch_size,
-            split_embed=True,
-        )
-
+        if auxiliary_loss:
+            probe_value = "auxiliary_loss"
+            probes = utils.get_model_probes(
+                model,
+                num_shapes=16,
+                num_colors=16,
+                num_classes=2,
+                probe_for=probe_value,
+                obj_size=obj_size,
+                patch_size=patch_size,
+                split_embed=True,
+            )
+        if auxiliary_loss_control:
+            probe_value = "auxiliary_loss_control"
+            probe = utils.get_model_probes(
+                model,
+                num_shapes=16,
+                num_colors=16,
+                num_classes=2,
+                probe_for=probe_value,
+                obj_size=obj_size,
+                patch_size=patch_size,
+                split_embed=False,
+            )
+            probes = [probe]
     # Create paths
     model_string += pretrained_string  # Indicate if model is pretrained
     model_string += "_{0}".format(optim)  # Optimizer string
@@ -785,7 +952,7 @@ if __name__ == "__main__":
                 ood_dir = f"stimuli/mts_ood/{ood_label}/aligned/N_{obj_size}/trainsize_6400_{ood_dir}"
             else:
                 ood_dir = f"stimuli/NOISE_ood/{ood_label}/aligned/N_{obj_size}/trainsize_6400_{ood_dir}"
-                
+
             ood_dataset = SameDifferentDataset(
                 ood_dir + "/val",
                 transform=transform,
@@ -816,7 +983,7 @@ if __name__ == "__main__":
                     test_dataset, batch_size=512, shuffle=True
                 )
 
-                '''
+                """
                 labels = [
                     f"{dataset_str}_val",
                     f"{dataset_str}_test_iid",
@@ -824,7 +991,7 @@ if __name__ == "__main__":
                 ]
                 dataloaders = [val_dataloader, test_iid_dataloader, test_dataloader]
                 datasets = [val_dataset, test_iid_dataset, test_dataset]
-                '''
+                """
                 labels = [f"{dataset_str}_test_iid"]
                 dataloaders = [test_iid_dataloader]
                 datasets = [test_iid_dataset]
@@ -855,6 +1022,8 @@ if __name__ == "__main__":
                 + list(probes[0].parameters())
                 + list(probes[1].parameters())
             )
+        if args.auxiliary_loss_control:
+            params = list(model_params) + list(probes[0].parameters())
         else:
             params = model_params
 
