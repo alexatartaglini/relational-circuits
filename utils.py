@@ -242,6 +242,11 @@ def get_model_probes(
             nn.Linear(probe_dim, num_colors).to(device),
         )
 
+    # For aux loss control, probe for object identity
+    if probe_for == "auxiliary_loss_control":
+        num_objects = int(num_colors * num_shapes)
+        return nn.Linear(probe_dim, num_objects).to(device)
+
     # number of patches is determined by object size
     if obj_size / patch_size == 2:
         num_patches = 4
