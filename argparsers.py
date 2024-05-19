@@ -52,6 +52,19 @@ def model_train_parser(parser):
         default=False,
         help="Evaluate model only.",
     )
+    
+    parser.add_argument(
+        "--attn_loss",
+        action="store_true",
+        default=False,
+        help="Train model with attn loss",
+    )
+    parser.add_argument(
+        "--attn_layer", default=None, nargs="*", type=int, help="Layer(s) for attn loss"
+    )
+    parser.add_argument(
+        "--n_attn_head", default=0, type=int, help="Num attn heads in each layer for attn loss"
+    )
 
     parser.add_argument(
         "--probe_layer", default=-1, type=int, help="Probe layer for auxiliary loss"
