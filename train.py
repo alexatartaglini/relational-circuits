@@ -337,11 +337,19 @@ def evaluation(
 
             if "clip" in args.model_type:
                 # Extract logits from clip model
-                outputs = model(inputs, output_hidden_states=True)
+                outputs = model(
+                    inputs, 
+                    output_hidden_states=args.auxiliary_loss, 
+                    output_attentions=args.attention_loss
+                )
                 output_logits = outputs.image_embeds
             else:
                 # Extarct logits from VitForImageClassification
-                outputs = model(inputs, output_hidden_states=True)
+                outputs = model(
+                    inputs, 
+                    output_hidden_states=args.auxiliary_loss, 
+                    output_attentions=args.attention_loss
+                )
                 output_logits = outputs.logits
 
             loss = criterion(output_logits, labels)
