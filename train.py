@@ -54,7 +54,7 @@ def compute_attention_loss(
     target_pattern[obj1_pos, obj1_pos] = 1.0
     target_pattern[obj2_pos, obj2_pos] = 1.0
     target_pattern = target_pattern.unsqueeze(0).repeat(len(heads), 1, 1)
-    target_pattern = target_pattern.unsqueeze(0).repeat(input_attns.shape[0], 1, 1)
+    target_pattern = target_pattern.unsqueeze(0).repeat(input_attns.shape[0], 1, 1, 1)
     
     loss = criterion(input_attns, target_pattern)
     return loss
