@@ -60,7 +60,7 @@ def model_train_parser(parser):
         help="Train model with attn loss",
     )
     parser.add_argument(
-        "--attn_layer", default=None, nargs="*", type=int, help="Layer(s) for attn loss"
+        "--attn_layer", default=None, nargs="*", help="Layer(s) for attn loss"
     )
     parser.add_argument(
         "--n_attn_head", default=0, type=int, help="Num attn heads in each layer for attn loss"
