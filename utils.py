@@ -96,8 +96,8 @@ def load_model_from_path(
 
 def load_tl_model(
     path,
+    patch_size,
     model_type="vit",
-    patch_size=16,
     im_size=224,
 ):
     # Load models

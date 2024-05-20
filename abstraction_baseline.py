@@ -23,33 +23,42 @@ def patch_residual_component(
     target_residual_component,
     hook,
     positions,
+    positional_embeds,
     source_embeds,
 ):
 
     for i in range(len(target_residual_component)):
-        target_residual_component[i, positions[i]] = source_embeds[i]
+        replacement = positional_embeds[positions[i]] + source_embeds[i]
+        target_residual_component[i, positions[i]] = replacement
     return target_residual_component
 
 
-def generate_embeddings(model, testloader):
-
+def generate_embeddings(model, testloader, positional_embeds):
     object_embeds = defaultdict(list)
     for idx, data in enumerate(testloader):
-        print(idx)
-        if idx > 4:
+        if idx == 20:
             break
         _, cache = model.run_with_cache(data["base"])
+
         for layer in range(12):
             resid = cache["resid_post", layer]
+            streams = data["streams"]
+            fixed_streams = data["fixed_object_streams"]
+
             # For RMTS these streams will either both be display objects or sample objects
             batch_size = resid.shape[0]
-            resid = resid.reshape(-1, 768)
-
-            streams = data["streams"].reshape(-1)
-            object_embeds[layer].append(resid[streams].reshape(batch_size, -1, 768))
-
-            streams = data["fixed_object_streams"].reshape(-1)
-            object_embeds[layer].append(resid[streams].reshape(batch_size, -1, 768))
+            num_streams = streams[0].shape[0]
+            for item_idx in range(batch_size):
+                embed = (
+                    resid[item_idx, streams[item_idx]].reshape(num_streams, -1)
+                    - positional_embeds[streams[item_idx]]
+                )
+                object_embeds[layer].append(embed.reshape(num_streams, -1).to("cpu"))
+                embed = (
+                    resid[item_idx, fixed_streams[item_idx]].reshape(num_streams, -1)
+                    - positional_embeds[fixed_streams[item_idx]]
+                )
+                object_embeds[layer].append(embed.reshape(num_streams, -1).to("cpu"))
 
     return object_embeds
 
@@ -60,15 +69,18 @@ def run_abstraction(
     abstract_vector_function,
     criterion,
     task,
+    num_patches,
+    pos_embeds,
     device="cuda",
+    interpolate=False,
 ):
+    # If interpolate, use the same two objects for all patches
 
     eval_preds = []
     all_labels = []
     with torch.no_grad():
         for idx, inputs in enumerate(testloader):
-            print(idx)
-            if idx > 4:
+            if idx == 20:
                 break
             # Sample vectors
             for k, v in inputs.items():
@@ -79,10 +91,13 @@ def run_abstraction(
             all_labels += labels
 
             # Get abstract_vectors
-            vector_1 = abstract_vector_function().to("cuda")  # Shape should be (4, 768)
-            vector_1 = vector_1[0].unsqueeze(0).repeat(4, 1)
+            vector_1 = abstract_vector_function().to(
+                "cuda"
+            )  # Shape should be (num_patches, 768)
             vector_2 = abstract_vector_function().to("cuda")
-            vector_2 = vector_2[0].unsqueeze(0).repeat(4, 1)
+            if not interpolate:
+                vector_1 = vector_1[0].unsqueeze(0).repeat(num_patches, 1)
+                vector_2 = vector_2[0].unsqueeze(0).repeat(num_patches, 1)
 
             # Abstract vectors for one object
             abstract_vectors_1 = []
@@ -119,11 +134,13 @@ def run_abstraction(
                 patch_residual_component,
                 positions=inputs["streams"],
                 source_embeds=torch.stack(abstract_vectors_1, dim=0),
+                positional_embeds=pos_embeds,
             )
             hook_obj2 = partial(
                 patch_residual_component,
                 positions=inputs["fixed_object_streams"],
                 source_embeds=torch.stack(abstract_vectors_2, dim=0),
+                positional_embeds=pos_embeds,
             )
             patched_logits = model.run_with_hooks(
                 inputs["base"],
@@ -147,7 +164,6 @@ def compute_metrics(eval_preds, labels, criterion, device=None):
 
     eval_preds = torch.concat(eval_preds, dim=0)
     pred_test_labels = torch.argmax(eval_preds, dim=-1)
-    print(pred_test_labels)
     correct_labels = pred_test_labels == labels  # Counterfactual labels
     total_count = len(correct_labels)
     correct_count = correct_labels.sum().tolist()
@@ -178,21 +194,29 @@ if __name__ == "__main__":
     else:
         comp_str = f"{compositional}-{compositional}-{256-compositional}"
 
+    if obj_size == 32:
+        num_patches = 4
+    else:
+        num_patches = 1
+
     model_path = f"./models/{task}/{pretrain}/{ds}_{obj_size}/{comp_str}_{run_id}.pth"
 
     log_path = f"logs/{pretrain}/{task}/{ds}/aligned/N_{obj_size}/trainsize_6400_{comp_str}/Abstraction_Baseline/{analysis}"
     os.makedirs(log_path, exist_ok=True)
 
     image_processor, tl_model = load_tl_model(model_path, pretrain, patch_size)
+    pos_embeds = tl_model.embed.pos_embed[0]
 
     torch.set_grad_enabled(False)
 
-    data_dir = f"stimuli/das/{task}/trainsize_6400_{comp_str}/{analysis}_32/test/"
+    data_dir = (
+        f"stimuli/das/{task}/trainsize_6400_{comp_str}/{analysis}_{obj_size}/test/"
+    )
 
-    # Get all 4 embeddings for each object
-    test_data = DasDataset(data_dir, image_processor, device="cuda")
+    # Get all embeddings for each object
+    test_data = DasDataset(data_dir, image_processor, num_patches, device="cuda")
     testloader = DataLoader(test_data, batch_size=64, shuffle=True, drop_last=False)
-    embeds = generate_embeddings(tl_model, testloader)
+    embeds = generate_embeddings(tl_model, testloader, pos_embeds)
 
     results = {
         "layer": [],
@@ -202,15 +226,17 @@ if __name__ == "__main__":
         "random_acc": [],
         "interpolated_loss": [],
         "interpolated_acc": [],
+        "added_loss": [],
+        "added_acc": [],
     }
 
     criterion = CrossEntropyLoss()
 
     # Run abstraction analyses with functions generated using these embeddings, similar to DAS
-    for layer in range(2, 12):
+    for layer in range(0, 12):
         print(f"LAYER: {layer}")
         layer_embeds = embeds[layer]
-        layer_embeds = torch.cat(layer_embeds, dim=0)
+        layer_embeds = torch.stack(layer_embeds, dim=0)
         means = torch.mean(layer_embeds, dim=0)
         stds = torch.std(layer_embeds, dim=0)
 
@@ -222,8 +248,12 @@ if __name__ == "__main__":
             abstract_vector_function,
             criterion,
             task,
+            num_patches=num_patches,
+            pos_embeds=pos_embeds,
         )
+        print("Sampled")
         print(sampled_metrics)
+
         # Eval with more random gaussian vectors
         abstract_vector_function = partial(
             torch.normal,
@@ -236,17 +266,22 @@ if __name__ == "__main__":
             abstract_vector_function,
             criterion,
             task,
+            num_patches=num_patches,
+            pos_embeds=pos_embeds,
         )
-        print(sampled_metrics)
+        print("Random")
+        print(fully_random_metrics)
 
         # Eval with interpolated vectors
-        def interpolate(embs):
+        def interpolate(embs, v1, v2):
             choices = np.random.choice(range(len(embs)), size=2)
-            return (embs[choices[0]] * 0.5) + (embs[choices[1]] * 0.5)
+            return (embs[choices[0]] * v1) + (embs[choices[1]] * v2)
 
         abstract_vector_functions = partial(
             interpolate,
             embs=layer_embeds,
+            v1=0.5,
+            v2=0.5,
         )
         interpolated_metrics = run_abstraction(
             tl_model,
@@ -254,8 +289,31 @@ if __name__ == "__main__":
             abstract_vector_function,
             criterion,
             task,
+            num_patches=num_patches,
+            pos_embeds=pos_embeds,
+            interpolate=True,
         )
-        print(sampled_metrics)
+        print("Interpolated")
+        print(interpolated_metrics)
+
+        abstract_vector_functions = partial(
+            interpolate,
+            embs=layer_embeds,
+            v1=1.0,
+            v2=1.0,
+        )
+        added_metrics = run_abstraction(
+            tl_model,
+            testloader,
+            abstract_vector_function,
+            criterion,
+            task,
+            num_patches=num_patches,
+            pos_embeds=pos_embeds,
+            interpolate=True,
+        )
+        print("added")
+        print(added_metrics)
 
         results["layer"].append(layer)
 
@@ -267,5 +325,8 @@ if __name__ == "__main__":
 
         results["interpolated_acc"].append(interpolated_metrics["accuracy"])
         results["interpolated_loss"].append(interpolated_metrics["loss"])
+
+        results["added_acc"].append(added_metrics["accuracy"])
+        results["added_loss"].append(added_metrics["loss"])
 
         pd.DataFrame.from_dict(results).to_csv(os.path.join(log_path, f"results.csv"))

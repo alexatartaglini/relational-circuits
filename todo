@@ -1,25 +1,28 @@
-CODE
-[x] Add Alexa's data.py file stuff
-[x] Add DAS support for RMTS
-    [x] Generate DAS datasets for RMTS
-    [x] Add DAS support in DAS.py
-[x] Fix abstraction for 16 patch
-    [x] Get embeddings for each patch
-    [x] Per patch abstract functions
-    [x] Run eval with per patch abstract functions
-    [x] Abstraction analysis with RMTS
-[x] Fix abstraction baseline
-    [x] Get embeddings
-    [x] Port eval from DAS
-[] Fix auxiliary loss stuff for 16 patch data
+Linear Interventions
+[x] Fix argparser for linear probe intervention
+[x] Add assert statements and refactor to make things very clean
+[x] Refactor to work with 32 pixel objects and 16 pixel objects
 
-RESULTS
-[] Run DAS + controls on discrimination models
-[] Run DAS + controls on RMTS models
-[] Run abstraction baseline on discrimination models
-[] Run abstraction baseline on RMTS models
-[] Run auxiliary loss experiment on discrimination models
-[] Run auxiliary loss expeirment on RMTS models
-[] Run linear intervention on RMTS models
-[] Sweep over model parameters, pick the best on an IID test set
-[] Train a from scratch model one way more data for both discrimination and RMTS
+Probe Refactors
+[x] Refactor Probe to work for 16 pixel objects
+[x] Refactor auxiliary loss to work for 16 pixel objects
+
+Data Refactors
+DISCRIMINATION TASK
+    [x] Refactor Create_DAS_Datasets to work with 16 pixel objects
+    [x] Add asserts in create_das_datasets
+RMTS TASK
+    [] Refactor Create_DAS_Datasets to work with 16 pixel objects
+    [] Add asserts in create_das_datasets
+[X] Add asserts in Dataset classes to ensure that things are clean
+
+DAS Refactors
+[x] Refactor DAS.py to work with 16 pixel objects
+[] Add asserts in DAS.py and clean up
+
+Graphs and Analysis
+[] Clean up code for generating pretty barplots consolidating the DAS and abstraction experiments
+[] Linear probe intervention barplot
+
+
+

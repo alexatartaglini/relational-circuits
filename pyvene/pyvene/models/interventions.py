@@ -465,24 +465,48 @@ class SigmoidMaskIntervention(
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.mask = torch.nn.Parameter(torch.zeros(self.embed_dim), requires_grad=True)
+        # MLEPORI edit boundary masks are initialized at 0.5
+        self.masks = torch.nn.Parameter(
+            torch.tensor([0.0] * self.embed_dim), requires_grad=True
+        )
+        self.temperature = torch.tensor(1.0)
+        # MLEPORI Edit: Added abstraction test
+        self.abstraction_test = False
+        self.save_embeds = False
+        self.saved_embeds = []
 
-        self.temperature = torch.nn.Parameter(torch.tensor(0.01))
+    def set_abstraction_test(self, bool, abstract_vector=None):
+        self.abstract_vector = abstract_vector
+        self.abstraction_test = bool
 
     def get_temperature(self):
         return self.temperature
 
     def set_temperature(self, temp: torch.Tensor):
-        self.temperature.data = temp
+        self.temperature = temp
+
+    def set_save_embeds(self, bool):
+        self.save_embeds = bool
+
+    def clear_saved_embeds(self):
+        self.saved_embeds = []
 
     def forward(self, base, source, subspaces=None):
         batch_size = base.shape[0]
         # get boundary mask between 0 and 1 from sigmoid
-        mask_sigmoid = torch.sigmoid(self.mask / torch.tensor(self.temperature))
+        mask_sigmoid = torch.sigmoid(self.masks / torch.tensor(self.temperature))
+        # For computing loss
+        self.mask_sum = torch.sum(mask_sigmoid)
+        # interchange
+        if self.abstraction_test:
+            # Multiplying by boundary mask shouldn't make a difference, these
+            # stored vectors are taken after boundary masking
+            source = self.abstract_vector
 
         # interchange
         intervened_output = (1.0 - mask_sigmoid) * base + mask_sigmoid * source
-
+        if self.save_embeds:
+            self.saved_embeds.append((mask_sigmoid * source).detach())
         return intervened_output
 
     def __str__(self):

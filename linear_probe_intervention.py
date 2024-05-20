@@ -10,36 +10,83 @@ import pandas as pd
 import utils
 from argparsers import model_probe_parser
 from functools import partial
+import copy
 
 
-def extract_embeddings(backbone, device, dataset):
-    idx2embeds = {}
-    print("extracting")
-    for idx in range(len(dataset)):
-        data, im_path = dataset[idx]
-        embed_1_pos = data["stream_1"]
-        embed_2_pos = data["stream_2"]
-        display_1_pos = data["display_stream_1"]
-        display_2_pos = data["display_stream_2"]
-        inputs = data["pixel_values"].unsqueeze(0)
-        inputs = inputs.to(device)
-        input_embeds = backbone(inputs, output_hidden_states=True).hidden_states
-        embed_1 = [embeds[0, embed_1_pos].to("cpu") for embeds in input_embeds]
-        embed_2 = [embeds[0, embed_2_pos].to("cpu") for embeds in input_embeds]
-        display_embed_1 = [
-            embeds[0, display_1_pos].to("cpu") for embeds in input_embeds
-        ]
-        display_embed_2 = [
-            embeds[0, display_2_pos].to("cpu") for embeds in input_embeds
-        ]
+def extract_embeddings(model, device, dataloader):
+    """
+    Helper function to run a dataset through a model, collect the embeddings
+    corresponding to all objects in each image, and store them in a dictionary mapping
+    image path to embeddings
+    """
+    path2embeds = {}
+    print("Extracting Embeddings")
+    with torch.no_grad():
+        for idx, (inputs, im_paths) in enumerate(dataloader):
+            print(f"Batch: {idx}")
+            embed_1_pos = inputs["stream_1"]
+            embed_2_pos = inputs["stream_2"]
+            display_1_pos = inputs["display_stream_1"]
+            display_2_pos = inputs["display_stream_2"]
 
-        idx2embeds[im_path] = {
-            "embed_1": embed_1,
-            "embed_2": embed_2,
-            "display_embed_1": display_embed_1,
-            "display_embed_2": display_embed_2,
-        }
-    return idx2embeds
+            input_embeds = model(
+                inputs["pixel_values"].to(device), output_hidden_states=True
+            ).hidden_states
+
+            # Iterate through all images in the batch, extracting embeddings for all objects
+            for idx in range(len(im_paths)):
+
+                # Data Checks:
+                # Assert that data is either one or 4 patch
+                assert len(embed_1_pos[idx]) == 1 or len(embed_1_pos[idx]) == 4
+                # Assert that data are always in valid positions (samples cannot be displayed in tokens 0 (CLS), 1, 2, 3, 4 (Display))
+                if len(embed_1_pos[idx]) == 4:
+                    assert (
+                        torch.all(embed_1_pos[idx] > 4)
+                        and torch.all(embed_1_pos[idx]) < 197
+                    )
+                else:
+                    # Assert that data are always in valid positions (samples cannot be displayed in tokens 0 (CLS), 1, 2  (Display))
+                    assert (
+                        torch.all(embed_1_pos[idx] > 2)
+                        and torch.all(embed_1_pos[idx]) < 50
+                    )
+                # Assert that data is either one or 4 patch
+                assert len(display_1_pos[idx]) == 1 or len(display_1_pos[idx]) == 4
+                # Assert that data are always in valid positions (First display patch must be in position 1, regardless of patch size)
+                assert display_1_pos[idx][0] == 1
+
+                # For each layer, get embeddings at the right positions
+                embed_1 = [
+                    layer_embeds[idx][embed_1_pos[idx]].to("cpu")
+                    for layer_embeds in input_embeds
+                ]
+                embed_2 = [
+                    layer_embeds[idx][embed_2_pos[idx]].to("cpu")
+                    for layer_embeds in input_embeds
+                ]
+
+                display_embed_1 = [
+                    layer_embeds[idx][display_1_pos[idx]].to("cpu")
+                    for layer_embeds in input_embeds
+                ]
+                display_embed_2 = [
+                    layer_embeds[idx][display_2_pos[idx]].to("cpu")
+                    for layer_embeds in input_embeds
+                ]
+
+                # Assert that shape is layers, batch, num_patches, hidden dim
+                assert len(embed_1) == 13
+                assert embed_1[0].shape[0] == 1 or embed_1[0].shape[0] == 4
+                assert embed_1[0].shape[1] == 768
+
+                path2embeds[im_paths[idx]] = {
+                    "embed_1": embed_1,
+                    "embed_2": embed_2,
+                    "display_embed_1": display_embed_1,
+                    "display_embed_2": display_embed_2,
+                }
+    return path2embeds
 
 
 def train_probe_epoch(
@@ -52,26 +99,25 @@ def train_probe_epoch(
 ):
     """Performs one training epoch
 
-    :param args: The command line arguments passed to the train.py file
-    :param model: The model to train (either a full model or probe)
+    :param args: The command line arguments passed to the file
+    :param model: The probe to train
     :param data_loader: The train dataloader
     :param criterion: The loss function
     :param optimizer: Torch optimizer
     :param dataset_size: Number of examples in the trainset
     :param device: cuda or cpu, defaults to "cuda"
-    :param backbone: If probing a frozen model, this is the visual feature extractor, defaults to None
     :return: results dictionary
     """
     running_loss = 0.0
     running_acc = 0.0
 
     # Iterate over data.
-    for bi, d in enumerate(data_loader):
+    for _, d in enumerate(data_loader):
+        # Inputs are flattened embeddings, outputs are probe labels
         inputs = d["embeddings"].to(device)
         labels = d["labels"].to(device)
         with torch.set_grad_enabled(True):
             optimizer.zero_grad()
-            # Training a probe, so the model is just a head
             output_logits = probe(inputs)
             loss = criterion(output_logits, labels)
             acc = accuracy_score(labels.to("cpu"), output_logits.to("cpu").argmax(1))
@@ -93,34 +139,29 @@ def train_probe_epoch(
 
 def evaluation(
     model,
-    val_dataloader,
-    val_dataset,  # Track the lengths, don't make this an argument
+    test_dataloader,
+    test_dataset,  # Track the lengths, don't make this an argument
     criterion,
     device="cuda",
 ):
     """Evaluate model on val set
 
-    :param args: The command line arguments passed to the train.py file
-    :param model: The model to evaluate (either a full model or probe)
-    :param val_dataloader: Val dataloader
-    :param val_dataset: Val dataset
+    :param args: The command line arguments passed to the file
+    :param model: The probe to evaluate
+    :param val_dataloader: test dataloader
+    :param val_dataset: test dataset
     :param criterion: The loss function
-    :param epoch: The epoch after which we are evaluation
-    :param test_table: WandB table that stores incorrect examples
     :param device: cuda or cpu, defaults to "cuda"
-    :param backbone: If probing a frozen model, this is the visual feature extractor, defaults to None
-    :param log_preds: Whether to log incorrect predictions, defaults to False
     :return: results dictionary
     """
     with torch.no_grad():
-        running_loss_val = 0.0
-        running_acc_val = 0.0
+        running_loss_test = 0.0
+        running_acc_test = 0.0
 
-        for bi, d in enumerate(val_dataloader):
+        for _, d in enumerate(test_dataloader):
             inputs = d["embeddings"].to(device)
             labels = d["labels"].to(device)
 
-            # Training a probe, so the model is just a head
             output_logits = model(inputs)
 
             loss = criterion(output_logits, labels)
@@ -128,21 +169,21 @@ def evaluation(
             preds = output_logits.argmax(1)
             acc = accuracy_score(labels.to("cpu"), preds.to("cpu"))
 
-            running_loss_val += loss.detach().item() * inputs.size(0)
-            running_acc_val += acc * inputs.size(0)
+            running_loss_test += loss.detach().item() * inputs.size(0)
+            running_acc_test += acc * inputs.size(0)
 
-        epoch_loss_val = running_loss_val / len(val_dataset)
-        epoch_acc_val = running_acc_val / len(val_dataset)
+        epoch_loss_test = running_loss_test / len(test_dataset)
+        epoch_acc_test = running_acc_test / len(test_dataset)
 
         print()
-        print("Val loss: {:.4f}".format(epoch_loss_val))
-        print("Val acc: {:.4f}".format(epoch_acc_val))
+        print("Test loss: {:.4f}".format(epoch_loss_test))
+        print("Test acc: {:.4f}".format(epoch_acc_test))
         print()
 
         return {
-            "Label": "Val",
-            "loss": epoch_loss_val,
-            "acc": epoch_acc_val,
+            "Label": "Test",
+            "loss": epoch_loss_test,
+            "acc": epoch_acc_test,
         }
 
 
@@ -153,24 +194,20 @@ def train_probe(
     data_loader,
     dataset_size,
     optimizer,
-    scheduler,
-    val_dataset,
-    val_dataloader,
+    test_dataset,
+    test_dataloader,
 ):
     """Main function implementing the training/eval loop
 
-    :param args: The command line arguments passed to the train.py file
-    :param model: The model to evaluate (either a full model or probe)
+    :param args: The command line arguments passed to the file file
+    :param probe: The probe to train
     :param device: cuda or cpu, defaults to "cuda"
     :param data_loader: Train dataloader
     :param dataset_size: Number of examples in trainset
     :param optimizer: Torch optimizer
-    :param scheduler: Torch learning rate scheduler
-    :param val_dataloader: Val dataloader
-    :param val_dataset: Val dataset
-    :param test_table: WandB table that stores incorrect examples
-    :param backbone: If probing a frozen model, this is the visual feature extractor, defaults to None
-    :return: Trained model
+    :param test_dataloader: Test dataloader
+    :param test_dataset: Test dataset
+    :return: metrics dictionary, Trained probe
     """
     num_epochs = args.num_epochs
     criterion = nn.CrossEntropyLoss()
@@ -199,22 +236,17 @@ def train_probe(
         # Perform evaluations
         probe.eval()
 
-        print("\nValidation: \n")
+        print("\Test: \n")
         result = evaluation(
             probe,
-            val_dataloader,
-            val_dataset,
+            test_dataloader,
+            test_dataset,
             criterion,
             device=device,
         )
-        metric_dict["val_loss"] = result["loss"]
-        metric_dict["val_acc"] = result["acc"]
+        metric_dict["test_loss"] = result["loss"]
+        metric_dict["test_acc"] = result["acc"]
         print(metric_dict)
-
-        if scheduler:
-            scheduler.step(
-                metric_dict[f"val_acc"]
-            )  # Reduce LR based on validation accuracy
 
     return metric_dict, probe
 
@@ -222,111 +254,133 @@ def train_probe(
 def intervene_on_residual_component(
     target_residual_component,
     hook,
-    positions,  # A list of positions corresponding to object pairs
-    deleted_direction,
-    added_direction,
+    positions,  # A list of lists of positions corresponding to object pairs
+    added_direction,  # A tensor of vectors to add
     alpha=1,
 ):
+    """Hook implementing linear intervention.
+    Grab the representations from the targeted component, add the specified vector to
+    change the model's intermediate same/different judgement about a pair
+    """
 
-    resid_components = target_residual_component[0, positions, :]
-    resid_components = resid_components.reshape(-1)
+    batch_size = target_residual_component.shape[0]
+    # Save pre intervention residual stream
+    pre_intervention = copy.deepcopy(target_residual_component)
 
-    # Get projection along direction to delete, define a direction to add
-    subtraction = torch.dot(resid_components, deleted_direction) * deleted_direction
+    # Create a list of the residual stream components to be intervened on
+    resid_components = []
+    for idx in range(batch_size):
+        resid_components.append(target_residual_component[idx, positions[idx], :])
+    resid_components = torch.stack(resid_components, dim=0).reshape(batch_size, -1)
+    # Assert that the residual stream components are of dimension
+    # 768 * 2 or 768 * 8 (hidden size * num patches)
+    assert resid_components.shape[1] in [1536, 6144]
+
+    # Define a direction to add
     addition = alpha * added_direction
 
-    # intervene
-    # resid_components = resid_components - subtraction + addition
+    # Intervene
     resid_components = resid_components + addition
 
-    # patch intervened representation back in
-    target_residual_component[:, positions, :] = resid_components.reshape(
-        1, len(positions), -1
-    )
+    # Patch intervened representation back in
+    for idx in range(batch_size):
+        target_residual_component[idx, positions[idx], :] = resid_components[
+            idx
+        ].reshape(len(positions[0]), -1)
+
+    # Assert that intervention actually changed the values
+    assert not torch.all(target_residual_component == pre_intervention)
 
     return target_residual_component
 
 
 def run_intervention(
-    probe, hooked_model, intervention_dataset, layer, alpha, control=False
+    probe, hooked_model, intervention_dataloader, layer, alpha, control=False
 ):
+    """Main function to run a linear intervention on a dataset
+    Linear intervention vectors are defined by probe weights, and scaled by a scaler, alpha
+    The goal is to swap a models decision on an RMTS stimuli by editing the same/different judgement of a single pair.
+    For each RMTS image, we run this intervention on each pair (display and sample).
+
+    probe: linear probe by which the same and different directions are defined
+    hooked_model: transformerlens model, allowing us to intervene on model representations
+    layer: Layer at which this intervention is performed
+    alpha: scaler to multiply same/different directions
+    control: As a control, we add the incorrect direction and observe that it has little effect on downstream model decisions
+    """
+
+    # Define abstract Same and Different directions based on the weights of the trained linear probe
     different_direction = probe.weight.data[0]
     same_direction = probe.weight.data[1]
+
+    # Store Overall accuracy, as well as accuracy on each type of object pair
     total_accuracy = []
     display_accuracy = []
     other_accuracy = []
 
-    for idx in range(len(intervention_dataset)):
-        data = intervention_dataset[idx]
-        if data["display_label"] == 0:
-            delete_direction = different_direction
-            add_direction = same_direction
-        if data["display_label"] == 1:
-            delete_direction = same_direction
-            add_direction = different_direction
+    with torch.no_grad():
+        for _, data in enumerate(intervention_dataloader):
+            for k, v in data.items():
+                if v is not None and isinstance(v, torch.Tensor):
+                    data[k] = v.to(device)
 
-        if control:
-            temp = add_direction
-            add_direction = delete_direction
-            delete_direction = temp
+            # Iterate over both object pairs in an image and intervene
+            for pair in ["display", "pair"]:
+                # Prepare add directions
+                add_directions = []
+                control_directions = []
 
-        display_pos = data["display_pos"]
-        hook = partial(
-            intervene_on_residual_component,
-            positions=display_pos,
-            deleted_direction=delete_direction,
-            added_direction=add_direction,
-            alpha=alpha,
-        )
-        patched_logits = hooked_model.run_with_hooks(
-            data["pixel_values"].unsqueeze(0),
-            fwd_hooks=[
-                (utils.get_act_name("resid_post", layer), hook),
-            ],
-            return_type="logits",
-        )
+                for label in data[f"{pair}_label"]:
+                    if label == 0:
+                        add_directions.append(same_direction)
+                        control_directions.append(different_direction)
+                    if label == 1:
+                        add_directions.append(different_direction)
+                        control_directions.append(same_direction)
 
-        correct = torch.argmax(patched_logits) == data["label"]
-        total_accuracy.append(correct)
-        display_accuracy.append(correct)
+                if control:
+                    add_directions = control_directions
 
-        if data["pair_label"] == 0:
-            delete_direction = different_direction
-            add_direction = same_direction
-        if data["pair_label"] == 1:
-            delete_direction = same_direction
-            add_direction = different_direction
+                add_directions = torch.stack(add_directions, dim=0)
 
-        if control:
-            temp = add_direction
-            add_direction = delete_direction
-            delete_direction = temp
+                # Positions should be of shape (batch_size, {2, 8})
+                positions = torch.stack(data[f"{pair}_pos"], dim=0).transpose(0, 1)
+                assert positions.shape[0] == len(data[f"{pair}_label"])
+                assert positions.shape[1] in [2, 8]
 
-        display_pos = data["pair_pos"]
-        hook = partial(
-            intervene_on_residual_component,
-            positions=display_pos,
-            deleted_direction=delete_direction,
-            added_direction=add_direction,
-            alpha=alpha,
-        )
-        patched_logits = hooked_model.run_with_hooks(
-            data["pixel_values"].unsqueeze(0),
-            fwd_hooks=[
-                (utils.get_act_name("resid_post", layer), hook),
-            ],
-            return_type="logits",
-        )
+                # Establish hook and run with intervention
+                hook = partial(
+                    intervene_on_residual_component,
+                    positions=positions,
+                    added_direction=add_directions,
+                    alpha=alpha,
+                )
+                patched_logits = hooked_model.run_with_hooks(
+                    data["pixel_values"],
+                    fwd_hooks=[
+                        (utils.get_act_name("resid_post", layer), hook),
+                    ],
+                    return_type="logits",
+                )
 
-        correct = torch.argmax(patched_logits) == data["label"]
-        total_accuracy.append(correct)
-        other_accuracy.append(correct)
+                correct = torch.argmax(patched_logits, dim=-1) == data["label"]
+                total_accuracy.append(correct)
+
+                if pair == "display":
+                    display_accuracy.append(correct)
+                else:
+                    other_accuracy.append(correct)
+
+    total_accuracy = torch.cat(total_accuracy)
+    display_accuracy = torch.cat(display_accuracy)
+    other_accuracy = torch.cat(other_accuracy)
+
     return {
-        "overall_acc": torch.sum(torch.stack(total_accuracy)).detach().cpu().numpy()
+        "overall_acc": torch.sum(total_accuracy).detach().cpu().numpy()
         / len(total_accuracy),
-        "display_acc": torch.sum(torch.stack(display_accuracy)).detach().cpu().numpy()
+        "display_acc": torch.sum(display_accuracy).detach().cpu().numpy()
         / len(display_accuracy),
-        "other_acc": torch.sum(torch.stack(other_accuracy)).detach().cpu().numpy()
+        "other_acc": torch.sum(other_accuracy).detach().cpu().numpy()
         / len(other_accuracy),
     }
 
@@ -347,23 +401,32 @@ if __name__ == "__main__":
     args = model_probe_parser(parser)
 
     # Parse command line arguments
-    model_type = args.model_type
+    # Model args
+    pretrain = args.pretrain
     patch_size = args.patch_size
-    model_path = args.model_path
+    run_id = args.run_id
 
-    dataset_str = args.dataset_str
+    # Data args
+    datasize = args.datasize
+    compositional = args.compositional
+    obj_size = args.obj_size
+
+    # Probe training args
     optim = args.optim
     lr = args.lr
-    lr_scheduler = args.lr_scheduler
     num_epochs = args.num_epochs
     batch_size = args.batch_size
+
+    # Intervention args
     alpha = args.alpha
     control = args.control
 
-    if control:
+    if control.lower() == "true":
         control_str = "control_"
+        control = True
     else:
         control_str = ""
+        control = False
 
     seed = args.seed
     # make deterministic if given a seed
@@ -374,21 +437,32 @@ if __name__ == "__main__":
 
     # Other hyperparameters/variables
     im_size = 224
-    decay_rate = 0.95  # scheduler decay rate for Exponential type
     int_to_label = {0: "different", 1: "same"}
     label_to_int = {"different": 0, "same": 1}
 
-    datasize = 2000
-
     # Check arguments
     assert im_size % patch_size == 0
-    assert model_type == "vit" or model_type == "clip_vit"
 
     # Create necessary directories
     try:
         os.mkdir("logs")
     except FileExistsError:
         pass
+
+    if pretrain == "clip":
+        model_type = "clip_vit"
+    else:
+        model_type = "vit"
+
+    if compositional < 0:
+        comp_str = "256-256-256"
+    else:
+        comp_str = f"{compositional}-{compositional}-{256-compositional}"
+
+    model_path = (
+        f"models/b{patch_size}/rmts/{pretrain}/mts_{obj_size}/{comp_str}_{run_id}.pth"
+    )
+    datapath = f"mts/aligned/b{patch_size}/N_{obj_size}/trainsize_6400_{comp_str}"
 
     model, transform = utils.load_model_from_path(
         model_path,
@@ -398,7 +472,9 @@ if __name__ == "__main__":
     )
     model = model.to(device)  # Move model to GPU if possible
 
-    _, hooked_model = utils.load_tl_model(model_path, model_type)
+    _, hooked_model = utils.load_tl_model(
+        model_path, patch_size=patch_size, model_type=model_type
+    )
     # Use the ViT as a backbone,
     if model_type == "vit":
         backbone = model.vit
@@ -410,16 +486,17 @@ if __name__ == "__main__":
         param.requires_grad = False
 
     path = os.path.join(
-        model_path.split("/")[2],
-        dataset_str,
+        pretrain,
         "Linear_Intervention",
+        f"b{patch_size}",
+        f"trainsize_6400_{comp_str}",
     )
 
     log_dir = os.path.join("logs", path)
     os.makedirs(log_dir, exist_ok=True)
 
     # Construct train set + DataLoader
-    data_dir = os.path.join("stimuli", dataset_str)
+    data_dir = os.path.join("stimuli", datapath)
     if not os.path.exists(data_dir):
         raise ValueError("Train Data Directory does not exist")
 
@@ -430,20 +507,24 @@ if __name__ == "__main__":
         size=datasize,
     )
 
-    val_dataset = SameDifferentDataset(
-        data_dir + "/val",
+    test_dataset = SameDifferentDataset(
+        data_dir + "/test_iid",
         transform=transform,
         task="rmts",
         size=datasize,
     )
 
-    # Extract embeddings from all datasets
-    train_embeddings = extract_embeddings(backbone, device, train_dataset)
-    val_embeddings = extract_embeddings(backbone, device, val_dataset)
+    train_loader = DataLoader(train_dataset, batch_size=512)
+    test_loader = DataLoader(test_dataset, batch_size=512)
 
-    df_dict = {
+    # Extract embeddings from all datasets
+    train_embeddings = extract_embeddings(backbone, device, train_loader)
+    test_embeddings = extract_embeddings(backbone, device, test_loader)
+
+    # Establish a data dict to store results
+    results_dict = {
         "layer": [],
-        "val acc": [],
+        "test acc": [],
         "train acc": [],
         "Intervention Acc": [],
         "Intervention Acc Display": [],
@@ -466,20 +547,24 @@ if __name__ == "__main__":
             train_dataset, batch_size=batch_size, shuffle=True
         )
 
-        val_dataset = ProbeDataset(
-            data_dir + "/val",
-            val_embeddings,
+        test_dataset = ProbeDataset(
+            data_dir + "/test_iid",
+            test_embeddings,
             probe_layer=layer,
             probe_value="intermediate_judgements",
             task="rmts",
             size=datasize,
         )
-        val_dataloader = DataLoader(val_dataset, batch_size=512, shuffle=False)
+        test_dataloader = DataLoader(test_dataset, batch_size=512, shuffle=False)
 
         intervention_dataset = LinearInterventionDataset(
-            data_dir + "/val",
+            data_dir + "/test_iid",
             transform,
             size=datasize,
+        )
+
+        intervention_dataloader = DataLoader(
+            intervention_dataset, batch_size=512, shuffle=False
         )
 
         # Create probe
@@ -490,28 +575,18 @@ if __name__ == "__main__":
             num_classes=2,
             probe_for="intermediate_judgements",
             split_embed=False,
-            num_patches=8,
+            obj_size=obj_size,
+            patch_size=patch_size,
         )
         params = probe.parameters()
 
-        # Optimizer and scheduler
+        # Optimizer
         if optim == "adamw":
             optimizer = torch.optim.AdamW(params, lr=lr)
         elif optim == "adam":
             optimizer = torch.optim.Adam(params, lr=lr)
         elif optim == "sgd":
             optimizer = torch.optim.SGD(params, lr=lr)
-
-        if lr_scheduler == "reduce_on_plateau":
-            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer, patience=num_epochs // 5, mode="max"
-            )
-        elif lr_scheduler == "exponential":
-            scheduler = torch.optim.lr_scheduler.ExponentialLR(
-                optimizer, gamma=decay_rate
-            )
-        elif lr_scheduler.lower() == "none":
-            scheduler = None
 
         # Run training loop + evaluations
         probe_results, probe = train_probe(
@@ -521,27 +596,31 @@ if __name__ == "__main__":
             train_dataloader,
             len(train_dataset),
             optimizer,
-            scheduler,
-            val_dataset,
-            val_dataloader,
+            test_dataset,
+            test_dataloader,
         )
 
-        df_dict["layer"].append(layer)
-        df_dict["train acc"].append(probe_results["acc"])
-        df_dict["val acc"].append(probe_results["val_acc"])
+        results_dict["layer"].append(layer)
+        results_dict["train acc"].append(probe_results["acc"])
+        results_dict["test acc"].append(probe_results["test_acc"])
 
+        # Using trained probe weights, run linear intervention
         intervention_results = run_intervention(
             probe,
             hooked_model,
-            intervention_dataset,
+            intervention_dataloader,
             layer,
             alpha=alpha,
             control=control,
         )
-        df_dict["Intervention Acc"].append(intervention_results["overall_acc"])
-        df_dict["Intervention Acc Display"].append(intervention_results["display_acc"])
-        df_dict["Intervention Acc Objects"].append(intervention_results["other_acc"])
+        results_dict["Intervention Acc"].append(intervention_results["overall_acc"])
+        results_dict["Intervention Acc Display"].append(
+            intervention_results["display_acc"]
+        )
+        results_dict["Intervention Acc Objects"].append(
+            intervention_results["other_acc"]
+        )
 
-        pd.DataFrame.from_dict(df_dict).to_csv(
+        pd.DataFrame.from_dict(results_dict).to_csv(
             os.path.join(log_dir, f"{control_str}results.csv")
         )

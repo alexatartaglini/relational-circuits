@@ -58,7 +58,7 @@ def model_train_parser(parser):
         default=False,
         help="Evaluate model only.",
     )
-    
+
     parser.add_argument(
         "--attention_loss",
         action="store_true",
@@ -69,7 +69,10 @@ def model_train_parser(parser):
         "--attn_layer", default=None, nargs="*", help="Layer(s) for attn loss"
     )
     parser.add_argument(
-        "--n_attn_head", default=0, type=int, help="Num attn heads in each layer for attn loss"
+        "--n_attn_head",
+        default=0,
+        type=int,
+        help="Num attn heads in each layer for attn loss",
     )
 
     parser.add_argument(
@@ -243,6 +246,7 @@ def model_probe_parser(parser):
         "--compositional",
         required=False,
         help="Number of combinations in train set, if some are held out",
+        type=int,
         default=-1,
     )
     parser.add_argument(
@@ -252,9 +256,6 @@ def model_probe_parser(parser):
         help="Training optimizer, eg. adam, adamw, sgd.",
     )
     parser.add_argument("--lr", type=float, default=1e-2, help="Learning rate.")
-    parser.add_argument(
-        "--lr_scheduler", default="reduce_on_plateau", help="LR scheduler."
-    )
     parser.add_argument(
         "--num_epochs", type=int, default=10, help="Number of training epochs."
     )
@@ -272,8 +273,8 @@ def model_probe_parser(parser):
     )
     parser.add_argument(
         "--control",
-        type=bool,
-        default=False,
+        type=str,
+        default="false",
         help="Whether to swap add and delete directions",
     )
     args = parser.parse_args()
@@ -429,7 +430,7 @@ def das_parser(parser):
     parser.add_argument(
         "--max_layer",
         type=int,
-        default=11,
+        default=12,
         help="Maximum layer to perform intervention.",
     )
     parser.add_argument("--lr", type=float, default=1e-3, help="Learning rate.")

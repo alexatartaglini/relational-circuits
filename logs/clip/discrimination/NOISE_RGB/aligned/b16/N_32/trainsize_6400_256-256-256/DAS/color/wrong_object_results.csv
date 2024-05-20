@@ -1,0 +1,4 @@
+,layer,train_loss,train_acc,val_loss,val_acc,iid_test_loss,iid_test_acc,ood_test_loss,ood_test_acc,sampled_loss,sampled_acc,added_loss,added_acc,random_loss,random_acc,interpolated_loss,interpolated_acc
+0,0,2.24,0.685,4.996,0.475,4.987,0.496,5.025,0.481,5.53,0.501,4.949,0.51,1.34,0.525,5.238,0.499
+1,1,2.325,0.688,5.146,0.482,4.961,0.498,5.197,0.473,5.502,0.5,5.114,0.503,1.845,0.479,5.449,0.505
+2,2,2.799,0.666,5.448,0.476,5.393,0.49,5.478,0.478,6.269,0.5,4.735,0.561,1.683,0.516,6.005,0.525
