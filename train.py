@@ -890,9 +890,14 @@ if __name__ == "__main__":
         args.n_val_tokens = compositional
         args.n_test_tokens = 256 - compositional
 
+    if patch_size == 16:
+        patch_str = "/b16"
+    else:
+        patch_str = ""
+
     comp_str = f"{args.n_train_tokens}-{args.n_val_tokens}-{args.n_test_tokens}"
     data_dir = os.path.join(
-        "stimuli",
+        f"stimuli{patch_str}",
         dataset_str,
         f"aligned/N_{obj_size}/trainsize_{n_train}_{comp_str}",
     )
