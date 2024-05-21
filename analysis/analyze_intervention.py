@@ -49,6 +49,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--patch_size", type=int, default=16, help="Size of patch (eg. 16 or 32)."
     )
+    parser.add_argument("--alpha", type=float, default=None)
     parser.add_argument(
         "--compositional",
         type=int,
@@ -64,8 +65,13 @@ if __name__ == "__main__":
     else:
         comp_str = f"{args.compositional}-{args.compositional}-{256-args.compositional}"
 
-    data_path = f"../logs/{args.pretrain}/Linear_Intervention/b{args.patch_size}/trainsize_6400_{comp_str}/"
-    outdir = f"analysis/{args.pretrain}/b{args.patch_size}/trainsize_6400_{comp_str}/Linear_Intervention/"
+    if args.alpha:
+        alpha_str = f"/alpha_{args.alpha}"
+    else:
+        alpha_str = ""
+
+    data_path = f"../logs/{args.pretrain}/Linear_Intervention{alpha_str}/b{args.patch_size}/trainsize_6400_{comp_str}/"
+    outdir = f"analysis/{args.pretrain}/b{args.patch_size}/trainsize_6400_{comp_str}/Linear_Intervention{alpha_str}/"
     os.makedirs(outdir, exist_ok=True)
     outpath = outdir + f"Linear_Intervention"
     title = f"Abstract Representations of Same and Different: {args.pretrain.capitalize()}-b{args.patch_size}"

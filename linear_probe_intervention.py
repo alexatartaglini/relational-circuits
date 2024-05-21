@@ -488,6 +488,7 @@ if __name__ == "__main__":
     path = os.path.join(
         pretrain,
         "Linear_Intervention",
+        f"alpha_{args.alpha}",
         f"b{patch_size}",
         f"trainsize_6400_{comp_str}",
     )

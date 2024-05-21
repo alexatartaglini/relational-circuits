@@ -47,10 +47,10 @@ def make_correlation_plot(results, clip, dino, imagenet, scratch, outpath, task)
         "Test Acc (Compositional)"
     ].iloc[0]
 
-    clip_iid = data[data["Pretrain"] == "CLIP"]["Val Acc"].iloc[0]
-    dino_iid = data[data["Pretrain"] == "DINO"]["Val Acc"].iloc[0]
-    imagenet_iid = data[data["Pretrain"] == "ImageNet"]["Val Acc"].iloc[0]
-    scratch_iid = data[data["Pretrain"] == "From Scratch"]["Val Acc"].iloc[0]
+    clip_iid = data[data["Pretrain"] == "CLIP"]["Test Acc (IID)"].iloc[0]
+    dino_iid = data[data["Pretrain"] == "DINO"]["Test Acc (IID)"].iloc[0]
+    imagenet_iid = data[data["Pretrain"] == "ImageNet"]["Test Acc (IID)"].iloc[0]
+    scratch_iid = data[data["Pretrain"] == "From Scratch"]["Test Acc (IID)"].iloc[0]
 
     clip_ood = data[data["Pretrain"] == "CLIP"]["Test Acc (OOD Shape & Color)"].iloc[0]
     dino_ood = data[data["Pretrain"] == "DINO"]["Test Acc (OOD Shape & Color)"].iloc[0]
