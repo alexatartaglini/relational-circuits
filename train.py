@@ -767,7 +767,7 @@ if __name__ == "__main__":
     attention_loss = args.attention_loss
     attn_layer = args.attn_layer
 
-    if attn_layer and isinstance(attn_layer[0], str):
+    if attn_layer[0] != "None" and isinstance(attn_layer[0], str):
         # attn_layer = list(map(int, attn_layer[0].split()))
         attn_layer = (
             attn_layer[0].replace("[", "").replace("]", "").replace(" ", "").split(",")
@@ -890,9 +890,14 @@ if __name__ == "__main__":
         args.n_val_tokens = compositional
         args.n_test_tokens = 256 - compositional
 
+    if patch_size == 16:
+        patch_str = "/b16"
+    else:
+        patch_str = ""
+
     comp_str = f"{args.n_train_tokens}-{args.n_val_tokens}-{args.n_test_tokens}"
     data_dir = os.path.join(
-        "stimuli",
+        f"stimuli{patch_str}",
         dataset_str,
         f"aligned/N_{obj_size}/trainsize_{n_train}_{comp_str}",
     )
