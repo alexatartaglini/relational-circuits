@@ -19,9 +19,7 @@ def make_barplot(data_path, outpath, title):
     n_layers = len(test_acc)
     layers = list(range(n_layers)) + list(range(n_layers)) + list(range(n_layers))
     eval = (
-        ["Probe Test Accuracy"] * n_layers
-        + ["Intervention"] * n_layers
-        + ["Control"] * n_layers
+        ["Probe Acc."] * n_layers + ["Intervention"] * n_layers + ["Control"] * n_layers
     )
 
     data = pd.DataFrame.from_dict({"Accuracy": accs, "Layers": layers, "Eval": eval})
@@ -47,6 +45,7 @@ def make_barplot(data_path, outpath, title):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("--pretrain", type=str)
     parser.add_argument(
         "--patch_size", type=int, default=16, help="Size of patch (eg. 16 or 32)."
     )
@@ -65,9 +64,9 @@ if __name__ == "__main__":
     else:
         comp_str = f"{args.compositional}-{args.compositional}-{256-args.compositional}"
 
-    data_path = f"../logs/clip/Linear_Intervention/b{args.patch_size}/trainsize_6400_{comp_str}/"
-    outdir = f"analysis/clip/b{args.patch_size}/trainsize_6400_{comp_str}/Linear_Intervention/"
+    data_path = f"../logs/{args.pretrain}/Linear_Intervention/b{args.patch_size}/trainsize_6400_{comp_str}/"
+    outdir = f"analysis/{args.pretrain}/b{args.patch_size}/trainsize_6400_{comp_str}/Linear_Intervention/"
     os.makedirs(outdir, exist_ok=True)
     outpath = outdir + f"Linear_Intervention"
-    title = f"Abstract Representations of Same and Different: CLIP-b{args.patch_size}"
+    title = f"Abstract Representations of Same and Different: {args.pretrain.capitalize()}-b{args.patch_size}"
     make_barplot(data_path, outpath, title)

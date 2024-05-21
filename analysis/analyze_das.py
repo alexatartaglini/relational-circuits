@@ -21,12 +21,12 @@ def make_barplot(
     accs = (
         list(disc_shape["iid_test_acc"])
         + list(disc_color["iid_test_acc"])
-        # + list(disc_shape_control["iid_test_acc"])
-        # + list(disc_color_control["iid_test_acc"])
+        + list(disc_shape_control["iid_test_acc"])
+        + list(disc_color_control["iid_test_acc"])
         + list(rmts_shape["iid_test_acc"])
         + list(rmts_color["iid_test_acc"])
-        # + list(rmts_shape_control["iid_test_acc"])
-        # + list(rmts_color_control["iid_test_acc"])
+        + list(rmts_shape_control["iid_test_acc"])
+        + list(rmts_color_control["iid_test_acc"])
     )
 
     n_layers = 12
@@ -35,20 +35,20 @@ def make_barplot(
         + list(range(n_layers))
         + list(range(n_layers))
         + list(range(n_layers))
-        # + list(range(n_layers))
-        # + list(range(n_layers))
-        # + list(range(n_layers))
-        # + list(range(n_layers))
+        + list(range(n_layers))
+        + list(range(n_layers))
+        + list(range(n_layers))
+        + list(range(n_layers))
     )
     eval = (
         ["Disc. Shape"] * n_layers
         + ["Disc. Color"] * n_layers
-        # + ["Disc. Shape Control"] * n_layers
-        # + ["Disc. Color Control"] * n_layers
+        + ["Disc. Shape Control"] * n_layers
+        + ["Disc. Color Control"] * n_layers
         + ["RMTS Shape"] * n_layers
         + ["RMTS Color"] * n_layers
-        # + ["RMTS Shape Control"] * n_layers
-        # + ["RMTS Color Control"] * n_layers
+        + ["RMTS Shape Control"] * n_layers
+        + ["RMTS Color Control"] * n_layers
     )
 
     print(len(accs))
@@ -56,7 +56,7 @@ def make_barplot(
         {"Intervention Acc.": accs, "Layers": layers, "Eval": eval}
     )
     sns.set_theme(style="darkgrid")
-    sns.set(font_scale=1.5)
+    sns.set(font_scale=1.25)
     sns.catplot(
         data,
         x="Layers",
@@ -71,7 +71,8 @@ def make_barplot(
     ax.axhline(y=0.5, color="red", linestyle="dashed")
     ax.set_ylim(0, 1)
     plt.title(title)
-    plt.savefig(f"{outpath}", bbox_inches="tight")
+    plt.savefig(f"{outpath}.pdf", bbox_inches="tight", format="pdf")
+    plt.savefig(f"{outpath}.png", bbox_inches="tight", format="png")
 
 
 if __name__ == "__main__":
@@ -134,7 +135,7 @@ if __name__ == "__main__":
         f"analysis/{args.pretrain}/b{args.patch_size}/trainsize_6400_{comp_str}/DAS"
     )
     os.makedirs(outdir, exist_ok=True)
-    outpath = outdir + f"/DAS.pdf"
+    outpath = outdir + f"/DAS"
     title = f"Counterfactual Interventions: CLIP-b{args.patch_size}"
     make_barplot(
         disc_shape,

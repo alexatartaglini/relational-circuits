@@ -50,16 +50,17 @@ def make_barplot(
         {"Intervention Acc.": accs, "Layers": layers, "Eval": eval}
     )
     sns.set_theme(style="darkgrid")
-    sns.set(font_scale=2.0)
+    sns.set(font_scale=1.55)
     sns.catplot(
         data,
         x="Layers",
         y="Intervention Acc.",
         hue="Eval",
         kind="bar",
-        height=5.5,
-        aspect=5,
+        height=4,
+        aspect=4,
         width=0.75,
+        legend_out=False,
         palette=[
             "darkblue",
             "blue",
@@ -74,8 +75,10 @@ def make_barplot(
     ax = plt.gca()
     ax.axhline(y=0.5, color="red", linestyle="dashed")
     ax.set_ylim(0, 1)
+    plt.legend(fontsize="x-small", title_fontsize="40")
     plt.title(title)
-    plt.savefig(f"{outpath}", bbox_inches="tight")
+    plt.savefig(f"{outpath}.pdf", bbox_inches="tight", format="pdf")
+    plt.savefig(f"{outpath}.png", bbox_inches="tight", format="png")
 
 
 if __name__ == "__main__":
@@ -128,9 +131,11 @@ if __name__ == "__main__":
 
     outdir = f"analysis/{args.pretrain}/b{args.patch_size}/trainsize_6400_{comp_str}/Abstraction"
     os.makedirs(outdir, exist_ok=True)
-    outpath = outdir + f"/Abstraction-{args.task}.pdf"
+    outpath = outdir + f"/Abstraction-{args.task}"
     if args.task == "rmts":
         args.task = "RMTS"
+    else:
+        args.task = "Discrimination"
     title = f"Novel Representations Analysis: {args.task} CLIP-b{args.patch_size}"
     make_barplot(
         shape,

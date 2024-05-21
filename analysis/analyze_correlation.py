@@ -24,12 +24,14 @@ def make_correlation_plot(results, clip, dino, imagenet, scratch, outpath, task)
         clip_das = pd.read_csv(clip + analysis + "/none_results.csv")
         dino_das = pd.read_csv(dino + analysis + "/none_results.csv")
         imagenet_das = pd.read_csv(imagenet + analysis + "/none_results.csv")
-        scratch_das = pd.read_csv(scratch + analysis + "/none_results.csv")
 
         clip_das_vals.append(clip_das["iid_test_acc"].max())
         dino_das_vals.append(dino_das["iid_test_acc"].max())
         imagenet_das_vals.append(imagenet_das["iid_test_acc"].max())
-        scratch_das_vals.append(scratch_das["iid_test_acc"].max())
+
+        if task != "RMTS":
+            scratch_das = pd.read_csv(scratch + analysis + "/none_results.csv")
+            scratch_das_vals.append(scratch_das["iid_test_acc"].max())
 
     clip_das = np.mean(clip_das_vals)
     dino_das = np.mean(dino_das_vals)
@@ -45,10 +47,10 @@ def make_correlation_plot(results, clip, dino, imagenet, scratch, outpath, task)
         "Test Acc (Compositional)"
     ].iloc[0]
 
-    clip_iid = data[data["Pretrain"] == "CLIP"]["Test Acc (IID)"].iloc[0]
-    dino_iid = data[data["Pretrain"] == "DINO"]["Test Acc (IID)"].iloc[0]
-    imagenet_iid = data[data["Pretrain"] == "ImageNet"]["Test Acc (IID)"].iloc[0]
-    scratch_iid = data[data["Pretrain"] == "From Scratch"]["Test Acc (IID)"].iloc[0]
+    clip_iid = data[data["Pretrain"] == "CLIP"]["Val Acc"].iloc[0]
+    dino_iid = data[data["Pretrain"] == "DINO"]["Val Acc"].iloc[0]
+    imagenet_iid = data[data["Pretrain"] == "ImageNet"]["Val Acc"].iloc[0]
+    scratch_iid = data[data["Pretrain"] == "From Scratch"]["Val Acc"].iloc[0]
 
     clip_ood = data[data["Pretrain"] == "CLIP"]["Test Acc (OOD Shape & Color)"].iloc[0]
     dino_ood = data[data["Pretrain"] == "DINO"]["Test Acc (OOD Shape & Color)"].iloc[0]
@@ -59,31 +61,17 @@ def make_correlation_plot(results, clip, dino, imagenet, scratch, outpath, task)
         "Test Acc (OOD Shape & Color)"
     ].iloc[0]
 
-    x = [clip_das, imagenet_das, dino_das, scratch_das]
-    y = [clip_ood, imagenet_ood, dino_ood, scratch_ood]
-    comp_y = [clip_comp, imagenet_comp, dino_comp, scratch_comp]
-    iid_y = [clip_iid, imagenet_iid, dino_iid, scratch_iid]
+    if task == "RMTS":
+        x = [clip_das, imagenet_das, dino_das]
+        y = [clip_ood, imagenet_ood, dino_ood]
+        comp_y = [clip_comp, imagenet_comp, dino_comp]
+        iid_y = [clip_iid, imagenet_iid, dino_iid]
+    else:
+        x = [clip_das, imagenet_das, dino_das, scratch_das]
+        y = [clip_ood, imagenet_ood, dino_ood, scratch_ood]
+        comp_y = [clip_comp, imagenet_comp, dino_comp, scratch_comp]
+        iid_y = [clip_iid, imagenet_iid, dino_iid, scratch_iid]
 
-    # if analysis == "shape":
-    #     plt.plot(x, y, color="blue", marker=".", label="Shape - OOD", linestyle="--")
-    #     plt.plot(
-    #         x,
-    #         comp_y,
-    #         color="cornflowerblue",
-    #         marker=".",
-    #         label="Shape - Comp.",
-    #         linestyle="--",
-    #     )
-    #     plt.plot(
-    #         x,
-    #         iid_y,
-    #         color="slateblue",
-    #         marker=".",
-    #         label="Shape - IID",
-    #         linestyle="--",
-    #     )
-
-    # if analysis == "color":
     plt.plot(
         x,
         iid_y,
