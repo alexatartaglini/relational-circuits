@@ -16,7 +16,7 @@ from transformers import (
 )
 
 sys.path.append(
-    "/users/mlepori/data/mlepori/projects/relational-circuits/TransformerLens"
+    "/users/XXXX/data/XXXX/projects/relational-circuits/TransformerLens"
 )
 from transformer_lens.loading_from_pretrained import (
     convert_vit_weights,
@@ -70,7 +70,7 @@ def load_model_from_path(
 
         # Replace projection with correct dimensions
         in_features = model.visual_projection.in_features
-        # @mlepori edit, CLIPVisionModelWithProjection doesn't have a config option for the visual projection to have a bias
+        # @XXXX edit, CLIPVisionModelWithProjection doesn't have a config option for the visual projection to have a bias
         # so we shouldn't have one either
         model.visual_projection = nn.Linear(in_features, 2, bias=False)
 
@@ -204,7 +204,7 @@ def load_model_for_training(
 
             # Replace projection with correct dimensions
             in_features = model.visual_projection.in_features
-            # @mlepori edit, CLIPVisionModelWithProjection doesn't have a config option for the visual projection to have a bias
+            # @XXXX edit, CLIPVisionModelWithProjection doesn't have a config option for the visual projection to have a bias
             # so we shouldn't have one either
             model.visual_projection = nn.Linear(in_features, 2, bias=False)
 
