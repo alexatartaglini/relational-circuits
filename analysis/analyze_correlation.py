@@ -91,8 +91,10 @@ def make_correlation_plot(results, clip, dino, imagenet, scratch, outpath, task)
         alpha=0.7,
     )
 
+    if task == "Discrimination":
+        task = "Disc."
     matplotlib.rcParams.update({"font.size": 13})
-    plt.title(f"Disentanglement vs. OOD Generalization: {task}")
+    plt.title(f"Disentanglement vs. Generalization: {task}")
     plt.legend()
     plt.xlabel("Counterfactual Intervention Acc.", fontsize=13)
     plt.ylabel("Generalization", fontsize=13)

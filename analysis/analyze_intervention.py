@@ -74,5 +74,5 @@ if __name__ == "__main__":
     outdir = f"analysis/{args.pretrain}/b{args.patch_size}/trainsize_6400_{comp_str}/Linear_Intervention{alpha_str}/"
     os.makedirs(outdir, exist_ok=True)
     outpath = outdir + f"Linear_Intervention"
-    title = f"Abstract Representations of Same and Different: {args.pretrain.capitalize()}-b{args.patch_size}"
+    title = f"Abstract Representations of Same and Different: {args.pretrain.capitalize()} B/{args.patch_size}"
     make_barplot(data_path, outpath, title)
