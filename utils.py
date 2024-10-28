@@ -15,8 +15,6 @@ from transformers import (
 )
 from attention_map_vit import AttnMapViTForImageClassification
 
-<<<<<<< HEAD
-=======
 sys.path.append(
     "/users/XXXX/data/XXXX/projects/relational-circuits/TransformerLens"
 )
@@ -27,7 +25,6 @@ from transformer_lens.loading_from_pretrained import (
 from transformer_lens.HookedViT import HookedViT
 from transformer_lens.components import ViTHead
 from transformer_lens.utils import get_act_name
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
 
 # from TransformerLens.transformer_lens.loading_from_pretrained import convert_vit_weights
 # from TransformerLens.transformer_lens.HookedViT import HookedViT
@@ -155,6 +152,8 @@ def load_model_for_training(
             num_labels=2,
             id2label=int_to_label,
             label2id=label_to_int,
+            image_size=224,
+            ignore_mismatched_sizes=True,
         )
 
         transform = ViTImageProcessor(do_resize=False).from_pretrained(model_path)
