@@ -1,6 +1,6 @@
 import sys
 
-sys.path.append("/users/mlepori/data/mlepori/projects/relational-circuits/pyvene")
+sys.path.append("/users/XXXX/data/XXXX/projects/relational-circuits/pyvene")
 
 import torch
 from tqdm import tqdm, trange

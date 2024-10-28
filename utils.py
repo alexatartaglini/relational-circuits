@@ -15,6 +15,19 @@ from transformers import (
 )
 from attention_map_vit import AttnMapViTForImageClassification
 
+<<<<<<< HEAD
+=======
+sys.path.append(
+    "/users/XXXX/data/XXXX/projects/relational-circuits/TransformerLens"
+)
+from transformer_lens.loading_from_pretrained import (
+    convert_vit_weights,
+    convert_clip_weights,
+)
+from transformer_lens.HookedViT import HookedViT
+from transformer_lens.components import ViTHead
+from transformer_lens.utils import get_act_name
+>>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
 
 # from TransformerLens.transformer_lens.loading_from_pretrained import convert_vit_weights
 # from TransformerLens.transformer_lens.HookedViT import HookedViT
@@ -60,7 +73,7 @@ def load_model_from_path(
 
         # Replace projection with correct dimensions
         in_features = model.visual_projection.in_features
-        # @mlepori edit, CLIPVisionModelWithProjection doesn't have a config option for the visual projection to have a bias
+        # @XXXX edit, CLIPVisionModelWithProjection doesn't have a config option for the visual projection to have a bias
         # so we shouldn't have one either
         model.visual_projection = nn.Linear(in_features, 2, bias=False)
 
@@ -168,7 +181,7 @@ def load_model_for_training(
 
             # Replace projection with correct dimensions
             in_features = model.visual_projection.in_features
-            # @mlepori edit, CLIPVisionModelWithProjection doesn't have a config option for the visual projection to have a bias
+            # @XXXX edit, CLIPVisionModelWithProjection doesn't have a config option for the visual projection to have a bias
             # so we shouldn't have one either
             model.visual_projection = nn.Linear(in_features, 2, bias=False)
 
