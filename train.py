@@ -1,5 +1,5 @@
 from torch.utils.data import DataLoader
-from data import SameDifferentDataset
+from data import SameDifferentDataset, AttnMapGenerator
 import torch.nn as nn
 import torch
 import argparse
@@ -37,29 +37,177 @@ class EarlyStopper:
 
 def compute_attention_loss(
     attns,
-    data,
     layers,
     heads,
     criterion,
-    obj_size,
-    patch_size,
+    target_attns=None,
+    data=None,
     device="cuda",
 ):
-    input_attns = torch.cat(tuple(attns[i] for i in layers), 0)[:, heads, :, :]
+    #input_attns = torch.cat(tuple(attns[i] for i in layers), 0)[:, heads, :, :]
+    input_attns = torch.cat(tuple(attns[i].unsqueeze(1) for i in layers), 1)[:, :, heads, : :]
 
-    obj1_pos = data["stream_1"]
-    obj2_pos = data["stream_2"]
+    if target_attns is None:
+        obj1_pos = data["stream_1"]
+        obj2_pos = data["stream_2"]
 
-    target_pattern = torch.zeros((input_attns.shape[-1], input_attns.shape[-1])).to(
-        device
-    )
-    target_pattern[obj1_pos, obj1_pos] = 1.0
-    target_pattern[obj2_pos, obj2_pos] = 1.0
-    target_pattern = target_pattern.unsqueeze(0).repeat(len(heads), 1, 1)
-    target_pattern = target_pattern.unsqueeze(0).repeat(input_attns.shape[0], 1, 1, 1)
+        target_pattern = torch.zeros((input_attns.shape[-1], input_attns.shape[-1])).to(device)
+        target_pattern[obj1_pos, obj1_pos] = 1.0
+        target_pattern[obj2_pos, obj2_pos] = 1.0
+        target_pattern = target_pattern.unsqueeze(0).repeat(len(heads), 1, 1)
+        target_pattern = target_pattern.unsqueeze(0).repeat(input_attns.shape[0], 1, 1, 1)
+    else:
+        target_pattern = torch.cat(tuple(target_attns[i].unsqueeze(1) for i in layers), 1)[:, :, 0, :, :]
+        target_pattern = target_pattern.unsqueeze(2).repeat(1, 1, len(heads), 1, 1)
 
     loss = criterion(input_attns, target_pattern)
     return loss
+
+
+def compute_attention_score_loss(
+    attns,
+    d,
+    map_generator,
+    criterion=None,
+    device="cuda",
+):
+    if criterion is None:
+        criterion = nn.BCELoss()
+
+    heads = map_generator.heads
+    batch_idx = torch.arange(attns[0].shape[0]).unsqueeze(1).to(device)
+
+    def get_idx_from_stream(stream, num_obj_tokens=4):
+        idx1 = torch.cat(tuple(stream for _ in range(num_obj_tokens)), 1).to(device)
+        idx2 = torch.cat(tuple(torch.roll(stream, i, dims=-1) for i in range(num_obj_tokens)), -1).to(device)
+        return idx1, idx2
+
+    def get_all_attn(layer_attns, idx):
+        x = layer_attns[batch_idx, :, idx]
+        x = torch.transpose(x, 1, 2)
+        x = x.reshape((-1, len(heads), x.shape[-2]*x.shape[-1]))
+        x = torch.sum(x, dim=-1)
+        return x
+
+    def get_layer_attns(layer_attns, idx1, idx2, xall):
+        x = layer_attns[batch_idx, :, idx1, idx2]
+        if torch.sum(x > 0) == 0:
+            return torch.zeros(len(batch_idx), len(heads)).to(device)
+        x = torch.transpose(x, 1, 2)
+        x = torch.sum(x, dim=-1) / xall
+        return x
+    
+    def compute_scores(t):
+        return torch.mean( torch.cat(t, -1), -1 )
+
+    stream_1 = d["stream_1"]
+    stream_2 = d["stream_2"]
+
+    obj1_idx1, obj1_idx2 = get_idx_from_stream(stream_1)
+    obj2_idx1, obj2_idx2 = get_idx_from_stream(stream_2)
+
+    loss = 0.0
+    for layer in map_generator.all_layers:
+        layer_attns = attns[layer][batch_idx, heads]
+
+        all_obj1 = get_all_attn(layer_attns, obj1_idx1)
+        all_obj2 = get_all_attn(layer_attns, obj2_idx1)
+
+        if map_generator.task == "rmts":
+            display_stream_1 = d["display_stream_1"]
+            display_stream_2 = d["display_stream_2"]
+
+            display1_idx1, display1_idx2 = get_idx_from_stream(display_stream_1)
+            display2_idx1, display2_idx2 = get_idx_from_stream(display_stream_2)
+
+            all_display1 = get_all_attn(layer_attns, display1_idx1)
+            all_display2 = get_all_attn(layer_attns, display2_idx1)
+
+        if layer in map_generator.wo and map_generator.use_wo:
+            obj1_to_obj1 = get_layer_attns(layer_attns, obj1_idx1, obj1_idx2, all_obj1) 
+            obj2_to_obj2 = get_layer_attns(layer_attns, obj2_idx1, obj2_idx2, all_obj2) 
+
+            t = (
+                obj1_to_obj1.unsqueeze(-1),
+                obj2_to_obj2.unsqueeze(-1)
+            )
+
+            scores = compute_scores(t)
+
+            if map_generator.task == "rmts":
+                display1_to_display1 = get_layer_attns(layer_attns, display1_idx1, display1_idx2, all_display1) 
+                display2_to_display2 = get_layer_attns(layer_attns, display2_idx1, display2_idx2, all_display2) 
+
+                t = (
+                    display1_to_display1.unsqueeze(-1),
+                    display2_to_display2.unsqueeze(-1)
+                )
+
+                scores_rmts = compute_scores(t)
+                scores =  torch.mean( torch.cat( (scores.unsqueeze(-1), scores_rmts.unsqueeze(-1)), -1 ), -1)
+
+            label_shape = obj1_to_obj1.shape
+        elif layer in map_generator.wp and map_generator.use_wp:
+            obj1_to_obj2 = get_layer_attns(layer_attns, obj1_idx1, obj2_idx2, all_obj1) 
+            obj2_to_obj1 = get_layer_attns(layer_attns, obj2_idx1, obj1_idx2, all_obj2) 
+
+            t = (
+                obj1_to_obj2.unsqueeze(-1),
+                obj2_to_obj1.unsqueeze(-1)
+            )
+
+            scores = compute_scores(t)
+
+            if map_generator.task == "rmts":
+                display1_to_display2 = get_layer_attns(layer_attns, display1_idx1, display2_idx2, all_display1) 
+                display2_to_display1 = get_layer_attns(layer_attns, display2_idx1, display1_idx2, all_display2) 
+
+                t = (
+                    display1_to_display2.unsqueeze(-1),
+                    display2_to_display1.unsqueeze(-1)
+                )
+
+                scores_rmts = compute_scores(t)
+                scores =  torch.mean( torch.cat( (scores.unsqueeze(-1), scores_rmts.unsqueeze(-1)), -1 ), -1)
+
+            label_shape = obj1_to_obj2.shape
+        elif layer in map_generator.bp and map_generator.use_bp:
+            obj1_to_display1 = get_layer_attns(layer_attns, obj1_idx1, display1_idx2, all_obj1)
+            obj1_to_display2 = get_layer_attns(layer_attns, obj1_idx1, display2_idx2, all_obj1)
+            obj2_to_display1 = get_layer_attns(layer_attns, obj2_idx1, display1_idx2, all_obj2)
+            obj2_to_display2 = get_layer_attns(layer_attns, obj2_idx1, display2_idx2, all_obj2)
+
+            display1_to_obj1 = get_layer_attns(layer_attns, display1_idx1, obj1_idx2, all_display1)
+            display1_to_obj2 = get_layer_attns(layer_attns, display1_idx1, obj2_idx2, all_display1)
+            display2_to_obj1 = get_layer_attns(layer_attns, display2_idx1, obj1_idx2, all_display2)
+            display2_to_obj2 = get_layer_attns(layer_attns, display2_idx1, obj2_idx2, all_display2)
+
+            t = (
+                obj1_to_display1.unsqueeze(-1),
+                obj1_to_display2.unsqueeze(-1),
+                obj2_to_display1.unsqueeze(-1),
+                obj2_to_display2.unsqueeze(-1),
+                display1_to_obj1.unsqueeze(-1),
+                display1_to_obj2.unsqueeze(-1),
+                display2_to_obj1.unsqueeze(-1),
+                display2_to_obj2.unsqueeze(-1),
+            )
+
+            scores = torch.mean( torch.cat(t, -1), -1 )
+            label_shape = obj1_to_display1.shape
+
+        labels = torch.ones(label_shape).to(device)
+
+        """
+        try:
+            labels = torch.ones(obj1_to_obj1.shape).to(device)
+        except UnboundLocalError:
+            labels = torch.ones(obj1_to_obj2.shape).to(device)
+        """
+
+        loss += criterion(scores, labels)
+
+    return loss / len(map_generator.all_layers)
 
 
 def compute_auxiliary_loss(
@@ -72,6 +220,7 @@ def compute_auxiliary_loss(
     obj_size,
     patch_size,
     device="cuda",
+    probe_type = "shape-color",
 ):
     """Compute an auxiliary loss that encourages separate linear subspaces for shape and color
     Half of the embedding of each object patch should encode one property, the other half should encode the other
@@ -86,7 +235,10 @@ def compute_auxiliary_loss(
     hidden_dim = input_embeds.shape[-1]
     probe_dim = int(hidden_dim / 2)
     batch_size = len(data["shape_1"])
-    shape_probe, color_probe = probes
+    if probe_type == "shape-color":
+        shape_probe, color_probe = probes
+    else:
+        cls1_probe, cls2_probe = probes
 
     # Number of patches is determined by object size
     if obj_size // patch_size == 2:
@@ -107,6 +259,11 @@ def compute_auxiliary_loss(
         torch.arange(batch_size).repeat_interleave(num_patches),
         data["stream_2"].reshape(-1),
     ]
+    if probe_type == "cls":
+        states_1 = states_1.reshape((batch_size, num_patches, -1))
+        states_2 = states_2.reshape((batch_size, num_patches, -1))
+
+    states = torch.cat((states_1, states_2), 1)
 
     # shape and color labels are maintained for each patch within an object
     shapes_1 = data["shape_1"].repeat_interleave(num_patches)
@@ -115,9 +272,12 @@ def compute_auxiliary_loss(
     colors_1 = data["color_1"].repeat_interleave(num_patches)
     colors_2 = data["color_2"].repeat_interleave(num_patches)
 
-    states = torch.cat((states_1, states_2))
-    shapes = torch.cat((shapes_1, shapes_2)).to(device)
-    colors = torch.cat((colors_1, colors_2)).to(device)
+    if probe_type == "cls":
+        states_source = states.reshape((batch_size, -1))
+        sdlabel_source = torch.logical_and(data["shape_1"] == data["shape_2"], data["color_1"] == data["color_2"]).to(int).to(device)
+    else:
+        shapes = torch.cat((shapes_1, shapes_2)).to(device)
+        colors = torch.cat((colors_1, colors_2)).to(device)
 
     # Add RMTS Display objects to train probe, if those are available
     if task == "rmts":
@@ -130,52 +290,78 @@ def compute_auxiliary_loss(
             data["display_stream_2"].reshape(-1),
         ]
 
+        if probe_type == "cls":
+            display_states_1 = display_states_1.reshape((batch_size, num_patches, -1))
+            display_states_2 = display_states_2.reshape((batch_size, num_patches, -1))
+
         display_shapes_1 = data["display_shape_1"].repeat_interleave(num_patches)
         display_shapes_2 = data["display_shape_2"].repeat_interleave(num_patches)
 
         display_colors_1 = data["display_color_1"].repeat_interleave(num_patches)
         display_colors_2 = data["display_color_2"].repeat_interleave(num_patches)
+        
+        if probe_type == "cls":
+            states_display = torch.cat((display_states_1, display_states_2), 1).reshape((batch_size, -1))
+            sdlabel_display = torch.logical_and(data["display_shape_1"] == data["display_shape_2"], data["display_color_1"] == data["display_color_2"]).to(int).to(device)
+            #sdlabel = torch.cat((sdlabel_source.to(device), sdlabel_display.to(device)))
 
-        states = torch.cat((states, display_states_1, display_states_2))
-        shapes = torch.cat(
-            (shapes, display_shapes_1.to(device), display_shapes_2.to(device))
+            #assert torch.all(sdlabel < 2)
+            #assert torch.all(sdlabel >= 0)
+        else:
+            states = torch.cat((states_1, states_2, display_states_1, display_states_2), 0)
+            shapes = torch.cat(
+                (shapes, display_shapes_1.to(device), display_shapes_2.to(device))
+            )
+            colors = torch.cat(
+                (colors, display_colors_1.to(device), display_colors_2.to(device))
+            )
+
+            assert torch.all(colors < 16)
+            assert torch.all(colors >= 0)
+            assert torch.all(shapes < 16)
+            assert torch.all(shapes >= 0)
+
+            # Assert that states has the right shape: (N objects * N patches * batch_size, 768)
+            if task == "discrimination":
+                if num_patches == 1:
+                    assert states.shape[0] == 2 * batch_size and states.shape[1] == 768
+                elif num_patches == 4:
+                    assert states.shape[0] == 8 * batch_size and states.shape[1] == 768
+            else:
+                if num_patches == 1:
+                    assert states.shape[0] == 4 * batch_size and states.shape[1] == 768
+                elif num_patches == 4:
+                    assert states.shape[0] == 16 * batch_size and states.shape[1] == 768
+
+    if probe_type == "shape-color":
+        # Run shape probe on half of the embedding, color probe on other half, ensures nonoverlapping subspaces
+        shape_outs = shape_probe(states[:, :probe_dim])
+        color_outs = color_probe(states[:, probe_dim:])
+
+        aux_loss = (criterion(shape_outs, shapes) + criterion(color_outs, colors),)
+
+        shape_acc = accuracy_score(shapes.to("cpu"), shape_outs.to("cpu").argmax(-1))
+        color_acc = accuracy_score(colors.to("cpu"), color_outs.to("cpu").argmax(-1))
+
+        return (
+            aux_loss,
+            shape_acc,
+            color_acc,
         )
-        colors = torch.cat(
-            (colors, display_colors_1.to(device), display_colors_2.to(device))
-        )
-
-    # Assert that color and shape are within range
-    assert torch.all(colors < 16)
-    assert torch.all(colors >= 0)
-    assert torch.all(shapes < 16)
-    assert torch.all(shapes >= 0)
-
-    # Assert that states has the right shape: (N objects * N patches * batch_size, 768)
-    if task == "discrimination":
-        if num_patches == 1:
-            assert states.shape[0] == 2 * batch_size and states.shape[1] == 768
-        elif num_patches == 4:
-            assert states.shape[0] == 8 * batch_size and states.shape[1] == 768
     else:
-        if num_patches == 1:
-            assert states.shape[0] == 4 * batch_size and states.shape[1] == 768
-        elif num_patches == 4:
-            assert states.shape[0] == 16 * batch_size and states.shape[1] == 768
+        sd1_outs = cls1_probe(states_source).to(device)
+        sd2_outs = cls2_probe(states_display).to(device)
 
-    # Run shape probe on half of the embedding, color probe on other half, ensures nonoverlapping subspaces
-    shape_outs = shape_probe(states[:, :probe_dim])
-    color_outs = color_probe(states[:, probe_dim:])
+        aux_loss = (criterion(sd1_outs, sdlabel_source) + criterion(sd2_outs, sdlabel_display),)
 
-    aux_loss = (criterion(shape_outs, shapes) + criterion(color_outs, colors),)
+        source_acc = accuracy_score(sdlabel_source.to("cpu"),  sd1_outs.to("cpu").argmax(-1))
+        display_acc = accuracy_score(sdlabel_display.to("cpu"),  sd2_outs.to("cpu").argmax(-1))
 
-    shape_acc = accuracy_score(shapes.to("cpu"), shape_outs.to("cpu").argmax(-1))
-    color_acc = accuracy_score(colors.to("cpu"), color_outs.to("cpu").argmax(-1))
-
-    return (
-        aux_loss,
-        shape_acc,
-        color_acc,
-    )
+        return (
+            aux_loss,
+            source_acc,
+            display_acc
+        )
 
 
 def compute_auxiliary_loss_control(
@@ -284,7 +470,10 @@ def train_model_epoch(
     probe_layer=None,
     attn_layer=None,
     attn_head=None,
+    attn_criterion=None,
     task="discrimination",
+    map_generator=None,
+    attention_map_strength=0.0,
 ):
     """Performs one training epoch
 
@@ -311,6 +500,9 @@ def train_model_epoch(
         inputs = inputs.to(device)
         labels = d["label"].to(device)
 
+        if map_generator is not None:
+            maps = map_generator(d)
+
         with torch.set_grad_enabled(True):
             optimizer.zero_grad()
 
@@ -321,16 +513,25 @@ def train_model_epoch(
                 outputs = model(
                     inputs,
                     output_hidden_states=output_hidden_states,
-                    output_attentions=args.attention_loss,
+                    output_attentions=args.attention_loss or args.attention_score_loss,
                 )
                 output_logits = outputs.image_embeds
             else:
                 # Extract logits from VitForImageClassification
-                outputs = model(
-                    inputs,
-                    output_hidden_states=output_hidden_states,
-                    output_attentions=args.attention_loss,
-                )
+                if map_generator is not None:
+                    outputs = model(
+                        inputs,
+                        attention_maps=maps,
+                        attention_map_strength=attention_map_strength,
+                        output_hidden_states=output_hidden_states,
+                        output_attentions=args.attention_loss or args.attention_score_loss,
+                    )
+                else:
+                    outputs = model(
+                        inputs,
+                        output_hidden_states=output_hidden_states,
+                        output_attentions=True,
+                    )
                 output_logits = outputs.logits
 
             loss = criterion(output_logits, labels)
@@ -346,6 +547,7 @@ def train_model_epoch(
                     task,
                     args.obj_size,
                     args.patch_size,
+                    probe_type=args.probe_type,
                 )
 
                 loss += aux_loss[0]
@@ -369,15 +571,22 @@ def train_model_epoch(
 
                 running_obj_acc += obj_acc * inputs.size(0)
 
-            elif args.attention_loss:
+            if args.attention_loss:
                 attn_loss = compute_attention_loss(
                     outputs.attentions,
-                    d,
-                    attn_layer,
+                    map_generator.all_layers,
                     attn_head,
-                    criterion,
-                    args.obj_size,
-                    args.patch_size,
+                    attn_criterion,
+                    target_attns=maps,
+                )
+
+                loss += attn_loss
+
+            elif args.attention_score_loss:
+                attn_loss = compute_attention_score_loss(
+                    outputs.attentions,
+                    d,
+                    map_generator,
                 )
 
                 loss += attn_loss
@@ -403,14 +612,20 @@ def train_model_epoch(
     if args.auxiliary_loss:
         epoch_shape_acc = running_shape_acc / dataset_size
         epoch_color_acc = running_color_acc / dataset_size
-        print("Epoch Shape accuracy: {:.4f}".format(epoch_shape_acc))
-        print("Epoch Color accuracy: {:.4f}".format(epoch_color_acc))
+        if args.probe_type == "shape-color":
+            str1 = "shape"
+            str2 = "color"
+        else:
+            str1 = "source"
+            str2 = "display"
+        print("Epoch {} accuracy: {:.4f}".format(str1, epoch_shape_acc))
+        print("Epoch {} accuracy: {:.4f}".format(str2, epoch_color_acc))
         return {
             "loss": epoch_loss,
             "acc": epoch_acc,
             "lr": optimizer.param_groups[0]["lr"],
-            "shape_acc": epoch_shape_acc,
-            "color_acc": epoch_color_acc,
+            f"{str1}_acc": epoch_shape_acc,
+            f"{str2}_acc": epoch_color_acc,
         }
     elif args.auxiliary_loss_control:
         epoch_obj_acc = running_obj_acc / dataset_size
@@ -436,7 +651,10 @@ def evaluation(
     probe_layer=None,
     attn_layer=None,
     attn_head=None,
+    attn_criterion=None,
     task="discrimination",
+    map_generator=None,
+    attention_map_strength=0.0,
 ):
     """Evaluate model on val set
 
@@ -449,6 +667,7 @@ def evaluation(
     :param device: cuda or cpu, defaults to "cuda"
     :return: results dictionary
     """
+
     with torch.no_grad():
         running_loss_val = 0.0
         running_acc_val = 0.0
@@ -463,21 +682,33 @@ def evaluation(
 
             output_hidden_states = args.auxiliary_loss or args.auxiliary_loss_control
 
+            if map_generator is not None:
+                maps = map_generator(d)
+
             if "clip" in args.model_type:
                 # Extract logits from clip model
                 outputs = model(
                     inputs,
                     output_hidden_states=output_hidden_states,
-                    output_attentions=args.attention_loss,
+                    output_attentions=args.attention_loss or args.attention_score_loss,
                 )
                 output_logits = outputs.image_embeds
             else:
                 # Extarct logits from VitForImageClassification
-                outputs = model(
-                    inputs,
-                    output_hidden_states=output_hidden_states,
-                    output_attentions=args.attention_loss,
-                )
+                if map_generator is not None:
+                    outputs = model(
+                        inputs,
+                        attention_maps=maps,
+                        attention_map_strength=attention_map_strength,
+                        output_hidden_states=output_hidden_states,
+                        output_attentions=args.attention_loss or args.attention_score_loss,
+                    )
+                else:
+                    outputs = model(
+                        inputs,
+                        output_hidden_states=output_hidden_states,
+                        output_attentions=args.attention_loss or args.attention_score_loss,
+                    )
                 output_logits = outputs.logits
 
             loss = criterion(output_logits, labels)
@@ -496,6 +727,7 @@ def evaluation(
                     task,
                     args.obj_size,
                     args.patch_size,
+                    probe_type=args.probe_type,
                 )
                 loss += aux_loss[0]
                 running_shape_acc_val += shape_acc * inputs.size(0)
@@ -515,15 +747,22 @@ def evaluation(
                 loss += aux_loss[0]
                 running_obj_acc_val += obj_acc * inputs.size(0)
 
-            elif args.attention_loss:
+            if args.attention_loss:
                 attn_loss = compute_attention_loss(
                     outputs.attentions,
-                    d,
-                    attn_layer,
+                    map_generator.all_layers,
                     attn_head,
-                    criterion,
-                    args.obj_size,
-                    args.patch_size,
+                    attn_criterion,
+                    target_attns=maps,
+                )
+
+                loss += attn_loss
+            
+            elif args.attention_score_loss:
+                attn_loss = compute_attention_score_loss(
+                    outputs.attentions,
+                    d,
+                    map_generator,
                 )
 
                 loss += attn_loss
@@ -552,8 +791,12 @@ def evaluation(
         if args.auxiliary_loss:
             epoch_shape_acc_val = running_shape_acc_val / len(val_dataset)
             epoch_color_acc_val = running_color_acc_val / len(val_dataset)
-            results["shape_acc"] = epoch_shape_acc_val
-            results["color_acc"] = epoch_color_acc_val
+            if args.probe_type == "shape-color":
+                results["shape_acc"] = epoch_shape_acc_val
+                results["color_acc"] = epoch_color_acc_val
+            else:
+                results["source_acc"] = epoch_shape_acc_val
+                results["display_acc"] = epoch_color_acc_val
         if args.auxiliary_loss_control:
             epoch_obj_acc_val = running_obj_acc_val / len(val_dataset)
             results["obj_acc"] = epoch_obj_acc_val
@@ -583,6 +826,8 @@ def train_model(
     attn_head=None,
     early_stopping=False,
     task="discrimination",
+    map_generator=None,
+    attention_map_strength=0.0,
 ):
     """Main function implementing the training/eval loop
 
@@ -608,12 +853,35 @@ def train_model(
         save_model_epochs = np.linspace(0, num_epochs, save_model_freq, dtype=int)
 
     criterion = nn.CrossEntropyLoss()
+    if args.attention_loss:
+        #attn_criterion = nn.MSELoss()
+        #attn_criterion = nn.BCEWithLogitsLoss()
+        attn_criterion = nn.CrossEntropyLoss()
+    else:
+        attn_criterion = None
     early_stopper = EarlyStopper()
 
     for epoch in range(num_epochs):
         print("Epoch {}/{}".format(epoch + 1, num_epochs))
         print("-" * 10)
         model.train()
+
+        if epoch == args.disable_attention_map_wo and map_generator is not None:
+            map_generator.disable_wo()
+        if epoch == args.disable_attention_map_wp and map_generator is not None:
+            map_generator.disable_wp()
+        if epoch == args.disable_attention_map_bp and map_generator is not None:
+            map_generator.disable_bp()
+
+        if epoch == args.enable_attention_map_wo and map_generator is not None:
+            map_generator.enable_wo()
+        if epoch == args.enable_attention_map_wp and map_generator is not None:
+            map_generator.enable_wp()
+        if epoch == args.enable_attention_map_bp and map_generator is not None:
+            map_generator.enable_bp()
+
+        if args.attention_map_strength_scaling > 0.0:
+            attention_map_strength *= args.attention_map_strength_scaling
 
         epoch_results = train_model_epoch(
             args,
@@ -627,7 +895,10 @@ def train_model(
             probe_layer=probe_layer,
             attn_layer=attn_layer,
             attn_head=attn_head,
+            attn_criterion=attn_criterion,
             task=task,
+            map_generator=map_generator,
+            attention_map_strength=attention_map_strength,
         )
 
         metric_dict = {
@@ -638,8 +909,12 @@ def train_model(
         }
 
         if args.auxiliary_loss:
-            metric_dict["shape_acc"] = epoch_results["shape_acc"]
-            metric_dict["color_acc"] = epoch_results["color_acc"]
+            if args.probe_type == "shape-color":
+                metric_dict["shape_acc"] = epoch_results["shape_acc"]
+                metric_dict["color_acc"] = epoch_results["color_acc"]
+            else:
+                metric_dict["source_acc"] = epoch_results["source_acc"]
+                metric_dict["display_acc"] = epoch_results["display_acc"]
         if args.auxiliary_loss_control:
             metric_dict["obj_acc"] = epoch_results["obj_acc"]
         # Save the model
@@ -665,15 +940,22 @@ def train_model(
             probe_layer=probe_layer,
             attn_layer=attn_layer,
             attn_head=attn_head,
+            attn_criterion=attn_criterion,
             task=task,
+            map_generator=map_generator,
+            attention_map_strength=attention_map_strength,
         )
 
         metric_dict["val_loss"] = result["loss"]
         metric_dict["val_acc"] = result["acc"]
         metric_dict["val_roc_auc"] = result["roc_auc"]
         if args.auxiliary_loss:
-            metric_dict["val_shape_acc"] = result["shape_acc"]
-            metric_dict["val_color_acc"] = result["color_acc"]
+            if args.probe_type == "shape-color":
+                metric_dict["val_shape_acc"] = result["shape_acc"]
+                metric_dict["val_color_acc"] = result["color_acc"]
+            else:
+                metric_dict["val_source_acc"] = result["source_acc"]
+                metric_dict["val_display_acc"] = result["display_acc"]
         if args.auxiliary_loss_control:
             metric_dict["val_obj_acc"] = result["obj_acc"]
 
@@ -690,15 +972,22 @@ def train_model(
             probe_layer=probe_layer,
             attn_layer=attn_layer,
             attn_head=attn_head,
+            attn_criterion=attn_criterion,
             task=task,
+            map_generator=map_generator,
+            attention_map_strength=attention_map_strength,
         )
 
         metric_dict["test_loss"] = result["loss"]
         metric_dict["test_acc"] = result["acc"]
         metric_dict["test_roc_auc"] = result["roc_auc"]
         if args.auxiliary_loss:
-            metric_dict["test_shape_acc"] = result["shape_acc"]
-            metric_dict["test_color_acc"] = result["color_acc"]
+            if args.probe_type == "shape-color":
+                metric_dict["test_shape_acc"] = result["shape_acc"]
+                metric_dict["test_color_acc"] = result["color_acc"]
+            else:
+                metric_dict["test_source_acc"] = result["source_acc"]
+                metric_dict["test_display_acc"] = result["display_acc"]
         if args.auxiliary_loss_control:
             metric_dict["test_obj_acc"] = result["obj_acc"]
 
@@ -718,7 +1007,10 @@ def train_model(
                 probe_layer=probe_layer,
                 attn_layer=attn_layer,
                 attn_head=attn_head,
+                attn_criterion=attn_criterion,
                 task=task,
+                map_generator=map_generator,
+                attention_map_strength=attention_map_strength,
             )
 
             metric_dict[f"{ood_label}_loss"] = result["loss"]
@@ -765,8 +1057,10 @@ if __name__ == "__main__":
     obj_size = args.obj_size
 
     attention_loss = args.attention_loss
+    attention_score_loss = args.attention_score_loss
     attn_layer = args.attn_layer
 
+    """
     if attn_layer[0] != "None" and isinstance(attn_layer[0], str):
         # attn_layer = list(map(int, attn_layer[0].split()))
         attn_layer = (
@@ -774,8 +1068,7 @@ if __name__ == "__main__":
         )
         attn_layer = [int(i) for i in attn_layer]
         args.attn_layer = attn_layer
-
-    attn_head = np.random.choice(list(range(12)), size=args.n_attn_head, replace=False)
+    """
 
     auxiliary_loss = args.auxiliary_loss
     auxiliary_loss_control = args.auxiliary_loss_control
@@ -823,7 +1116,7 @@ if __name__ == "__main__":
     texture = args.texture
 
     # Check arguments
-    assert model_type == "vit" or model_type == "clip_vit" or model_type == "dino_vit"
+    assert model_type == "vit" or model_type == "clip_vit" or model_type == "dino_vit" or model_type == "dinov2_vit" or model_type == "mae_vit"
 
     # Create necessary directories
     try:
@@ -837,6 +1130,25 @@ if __name__ == "__main__":
     else:
         pretrained_string = ""
 
+    if args.use_attention_map or args.attention_loss or args.attention_score_loss:
+        #assert model_type == "vit" and not pretrained
+
+        map_generator = AttnMapGenerator(
+            wo_layers=args.attention_map_wo_layers,
+            wp_layers=args.attention_map_wp_layers,
+            bp_layers=args.attention_map_bp_layers,
+            task=task,
+            patch_size=args.patch_size,
+            device=device,
+            heads=args.attention_map_heads,
+        )
+        attention_map_string = "_attnmap"
+        attn_head = map_generator.heads
+    else:
+        map_generator = None
+        attention_map_string = ""
+        attn_head = None
+
     model, transform, model_string = utils.load_model_for_training(
         model_type,
         patch_size,
@@ -846,6 +1158,7 @@ if __name__ == "__main__":
         label_to_int,
         pretrain_path=args.pretrain_path,
         train_clf_head_only=args.train_clf_head_only,
+        attention_map_generator=map_generator,
     )
     model = model.to(device)  # Move model to GPU if possible
 
@@ -854,7 +1167,10 @@ if __name__ == "__main__":
         # If using auxiliary loss, get probes and train them
         # alongside the model
         if auxiliary_loss:
-            probe_value = "auxiliary_loss"
+            if args.probe_type == "shape-color":
+                probe_value = "auxiliary_loss"
+            else:
+                probe_value = "intermediate_judgements"
             probes = utils.get_model_probes(
                 model,
                 num_shapes=16,
@@ -863,7 +1179,7 @@ if __name__ == "__main__":
                 probe_for=probe_value,
                 obj_size=obj_size,
                 patch_size=patch_size,
-                split_embed=True,
+                split_embed=args.probe_type == "shape-color",
             )
         if auxiliary_loss_control:
             probe_value = "auxiliary_loss_control"
@@ -881,6 +1197,7 @@ if __name__ == "__main__":
     # Create paths
     model_string += pretrained_string  # Indicate if model is pretrained
     model_string += "_{0}".format(optim)  # Optimizer string
+    model_string += attention_map_string
 
     # path = os.path.join(model_string, dataset_str)
 
@@ -892,6 +1209,8 @@ if __name__ == "__main__":
 
     if patch_size == 16:
         patch_str = "/b16"
+    elif patch_size == 14:
+        patch_str = "/b14"
     else:
         patch_str = ""
 
@@ -911,6 +1230,10 @@ if __name__ == "__main__":
         pretrain_type = "clip"
     elif model_type == "dino_vit":
         pretrain_type = "dino"
+    elif model_type == "dinov2_vit":
+        pretrain_type = "dinov2"
+    elif model_type == "mae_vit":
+        pretrain_type = "mae"
 
     log_dir = f"models/{pretrain_type}/{dataset_str}_{obj_size}"
     os.makedirs(log_dir, exist_ok=True)
@@ -1007,7 +1330,7 @@ if __name__ == "__main__":
 
         for label, dataloader, dataset in zip(labels, dataloaders, datasets):
             res = evaluation(
-                args, model, dataloader, dataset, criterion, 0, task=task, device=device
+                args, model, dataloader, dataset, criterion, 0, task=task, device=device, map_generator=map_generator,
             )
             results[label] = {}
             results[label]["loss"] = res["loss"]
@@ -1022,11 +1345,17 @@ if __name__ == "__main__":
             [param for param in model.parameters() if param.requires_grad]
         )
         if args.auxiliary_loss:
-            params = (
-                list(model_params)
-                + list(probes[0].parameters())
-                + list(probes[1].parameters())
-            )
+            if args.probe_type == "shape-color":
+                params = (
+                    list(model_params)
+                    + list(probes[0].parameters())
+                    + list(probes[1].parameters())
+                )
+            else:
+                params = (
+                    list(model_params)
+                    + list(probes[0].parameters())
+                )
         if args.auxiliary_loss_control:
             params = list(model_params) + list(probes[0].parameters())
         else:
@@ -1067,7 +1396,20 @@ if __name__ == "__main__":
             "num_epochs": num_epochs,
             "batch_size": batch_size,
             "attn_head": attn_head,
-            "attn_layer": attn_layer,
+            #"attn_layer": attn_layer,
+            "attention_map_wo_layers": args.attention_map_wo_layers,
+            "attention_map_wp_layers": args.attention_map_wp_layers,
+            "attention_map_bp_layers": args.attention_map_bp_layers,
+            "attention_map_heads": args.attention_map_heads,
+            "attention_map_strength": args.attention_map_strength,
+            "disable_attention_map_wo": args.disable_attention_map_wo,
+            "disable_attention_map_wp": args.disable_attention_map_wp,
+            "disable_attention_map_bp": args.disable_attention_map_bp,
+            "enable_attention_map_wo": args.enable_attention_map_wo,
+            "enable_attention_map_wp": args.enable_attention_map_wp,
+            "enable_attention_map_bp": args.enable_attention_map_bp,
+            "compositional": args.compositional,
+            "attention_map_strength_scaling": args.attention_map_strength_scaling,
         }
 
         # Initialize Weights & Biases project
@@ -1110,8 +1452,10 @@ if __name__ == "__main__":
             ood_dataloaders=ood_dataloaders,
             probes=probes,
             probe_layer=args.probe_layer,
-            attn_layer=attn_layer,
+            #attn_layer=attn_layer,
             attn_head=attn_head,
             task=task,
+            map_generator=map_generator,
+            attention_map_strength=args.attention_map_strength,
         )
         wandb.finish()

@@ -27,6 +27,31 @@ def model_train_parser(parser):
         default=False,
         help="Train only the classification head of the model, freezing other layers.",
     )
+    
+    parser.add_argument(
+        "--attention_map_heads",
+        default=12,
+        type=int,
+        help="Number of heads to inject attention maps into.",
+    )
+    parser.add_argument(
+        "--attention_map_wo_layers",
+        required=False,
+        nargs="*",
+        help="List of layers to do within-object attention if using attention maps",
+    )
+    parser.add_argument(
+        "--attention_map_wp_layers",
+        required=False,
+        nargs="*",
+        help="List of layers to do within-pair attention if using attention maps",
+    )
+    parser.add_argument(
+        "--attention_map_bp_layers",
+        required=False,
+        nargs="*",
+        help="List of layers to do between-pair attention if using attention maps (RMTS only)",
+    )
     parser.add_argument(
         "--pretrain_path",
         help="Path of model weights to load before fine-tuning.",
@@ -58,7 +83,12 @@ def model_train_parser(parser):
         default=False,
         help="Evaluate model only.",
     )
-
+    parser.add_argument(
+        "--attention_score_loss",
+        action="store_true",
+        default=False,
+        help="Train model with attn score loss",
+    )
     parser.add_argument(
         "--attention_loss",
         action="store_true",
