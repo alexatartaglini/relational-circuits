@@ -84,16 +84,52 @@ def model_train_parser(parser):
         help="Evaluate model only.",
     )
     parser.add_argument(
+        "--disable_attention_map_wo",
+        default=-1,
+        type=int,
+        help="Epoch at which to disable wo attention maps",
+    )
+    parser.add_argument(
+        "--disable_attention_map_wp",
+        default=-1,
+        type=int,
+        help="Epoch at which to disable wp attention maps",
+    )
+    parser.add_argument(
+        "--disable_attention_map_bp",
+        default=-1,
+        type=int,
+        help="Epoch at which to disable bp attention maps",
+    )
+    parser.add_argument(
+        "--enable_attention_map_wo",
+        default=-1,
+        type=int,
+        help="Epoch at which to enable wo attention maps",
+    )
+    parser.add_argument(
+        "--enable_attention_map_wp",
+        default=-1,
+        type=int,
+        help="Epoch at which to enable wp attention maps",
+    )
+    parser.add_argument(
+        "--enable_attention_map_bp",
+        default=-1,
+        type=int,
+        help="Epoch at which to enable bp attention maps",
+    )
+    parser.add_argument(
+        "--attention_map_strength", type=float, default=0.0, help="Multiplier for attention scores"
+    )
+    parser.add_argument(
+        "--attention_map_strength_scaling", type=float, default=-1.0, help="Scaling factor (per epoch) for attention_map_strength"
+    )
+    parser.add_argument(
         "--attention_score_loss",
         action="store_true",
         default=False,
         help="Train model with attn score loss",
-    )
-    parser.add_argument(
-        "--attention_loss",
-        action="store_true",
-        default=False,
-        help="Train model with attn loss",
     )
     parser.add_argument(
         "--attn_layer", default=None, nargs="*", help="Layer(s) for attn loss"

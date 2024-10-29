@@ -49,7 +49,7 @@ parser.add_argument(
 parser.add_argument("--probe_layer", default=-1, help="Layer to probe")
 
 parser.add_argument(
-    "--attention_loss",
+    "--attention_score_loss",
     action="store_true",
     default=False,
     help="Train with attn loss",
@@ -113,6 +113,8 @@ if args.pretrained:
     commands += ["--pretrained"]
     if "clip" in args.model_type:
         sweep_name = f"CLIP{clf_str} {sweep_name}"
+    elif "dinov2" in args.model_type:
+        sweep_name = f"DINOv2{clf_str} {sweep_name}"
     elif "dino" in args.model_type:
         sweep_name = f"DINO{clf_str} {sweep_name}"
     else:
@@ -131,9 +133,9 @@ if args.auxiliary_loss:
     commands += ["--auxiliary_loss"]
     sweep_name += " Aux Loss"
 
-if args.attention_loss:
-    commands += ["--attention_loss"]
-    sweep_name += " Attn Loss"
+if args.attention_score_loss:
+    commands += ["--attention_score_loss"]
+    sweep_name += " Attn. Score Loss"
 
 if args.feature_extract:
     commands += ["--feature_extract"]
@@ -153,7 +155,7 @@ sweep_configuration = {
             ]
         },
         "lr": {"values": [1e-6]},  # [1e-6]},
-        "lr_scheduler": {"values": ["reduce_on_plateau", "exponential"]},
+        "lr_scheduler": {"values": ["exponential"]},  # ["reduce_on_plateau", "exponential"]},
         "n_val": {"values": [6400]},
         "n_test": {"values": [6400]},
         "patch_size": {"values": [args.patch_size]},
@@ -164,7 +166,7 @@ sweep_configuration = {
         "wandb_cache_dir": {"values": ["../.cache"]},
         "num_gpus": {"values": [args.num_gpus]},
         "model_type": {"values": [args.model_type]},
-        "batch_size": {"values": [128]},
+        "batch_size": {"values": [64]},
         "probe_layer": {"values": [args.probe_layer]},
         "compositional": {"values": [-1, 32]},
         "pretrain_path": {"values": [args.pretrain_path]},
@@ -172,6 +174,11 @@ sweep_configuration = {
         "n_attn_head": {"values": [args.n_attn_head]},
     },
 }
+
+"""
+if args.attention_score_loss:
+    sweep_configuration["parameters"]
+"""
 
 sweep_id = wandb.sweep(
     sweep=sweep_configuration, project=args.wandb_proj, entity=args.wandb_entity

@@ -1,5 +1,5 @@
 from torch.utils.data import DataLoader
-from data import SameDifferentDataset, AttnMapGenerator
+from data import SameDifferentDataset #, AttnMapGenerator
 import torch.nn as nn
 import torch
 import argparse
@@ -513,7 +513,7 @@ def train_model_epoch(
                 outputs = model(
                     inputs,
                     output_hidden_states=output_hidden_states,
-                    output_attentions=args.attention_loss or args.attention_score_loss,
+                    output_attentions=args.attention_score_loss,
                 )
                 output_logits = outputs.image_embeds
             else:
@@ -524,7 +524,7 @@ def train_model_epoch(
                         attention_maps=maps,
                         attention_map_strength=attention_map_strength,
                         output_hidden_states=output_hidden_states,
-                        output_attentions=args.attention_loss or args.attention_score_loss,
+                        output_attentions=args.attention_score_loss,
                     )
                 else:
                     outputs = model(
@@ -571,6 +571,7 @@ def train_model_epoch(
 
                 running_obj_acc += obj_acc * inputs.size(0)
 
+            """
             if args.attention_loss:
                 attn_loss = compute_attention_loss(
                     outputs.attentions,
@@ -581,8 +582,9 @@ def train_model_epoch(
                 )
 
                 loss += attn_loss
+            """
 
-            elif args.attention_score_loss:
+            if args.attention_score_loss:
                 attn_loss = compute_attention_score_loss(
                     outputs.attentions,
                     d,
@@ -690,7 +692,7 @@ def evaluation(
                 outputs = model(
                     inputs,
                     output_hidden_states=output_hidden_states,
-                    output_attentions=args.attention_loss or args.attention_score_loss,
+                    output_attentions=args.attention_score_loss,
                 )
                 output_logits = outputs.image_embeds
             else:
@@ -701,13 +703,13 @@ def evaluation(
                         attention_maps=maps,
                         attention_map_strength=attention_map_strength,
                         output_hidden_states=output_hidden_states,
-                        output_attentions=args.attention_loss or args.attention_score_loss,
+                        output_attentions=args.attention_score_loss,
                     )
                 else:
                     outputs = model(
                         inputs,
                         output_hidden_states=output_hidden_states,
-                        output_attentions=args.attention_loss or args.attention_score_loss,
+                        output_attentions=args.attention_score_loss,
                     )
                 output_logits = outputs.logits
 
@@ -747,6 +749,7 @@ def evaluation(
                 loss += aux_loss[0]
                 running_obj_acc_val += obj_acc * inputs.size(0)
 
+            """
             if args.attention_loss:
                 attn_loss = compute_attention_loss(
                     outputs.attentions,
@@ -757,8 +760,9 @@ def evaluation(
                 )
 
                 loss += attn_loss
+            """
             
-            elif args.attention_score_loss:
+            if args.attention_score_loss:
                 attn_loss = compute_attention_score_loss(
                     outputs.attentions,
                     d,
@@ -853,12 +857,15 @@ def train_model(
         save_model_epochs = np.linspace(0, num_epochs, save_model_freq, dtype=int)
 
     criterion = nn.CrossEntropyLoss()
+    """
     if args.attention_loss:
         #attn_criterion = nn.MSELoss()
         #attn_criterion = nn.BCEWithLogitsLoss()
         attn_criterion = nn.CrossEntropyLoss()
     else:
         attn_criterion = None
+    """
+    attn_criterion = None
     early_stopper = EarlyStopper()
 
     for epoch in range(num_epochs):
@@ -1056,7 +1063,7 @@ if __name__ == "__main__":
     patch_size = args.patch_size
     obj_size = args.obj_size
 
-    attention_loss = args.attention_loss
+    #attention_loss = args.attention_loss
     attention_score_loss = args.attention_score_loss
     attn_layer = args.attn_layer
 
@@ -1130,7 +1137,7 @@ if __name__ == "__main__":
     else:
         pretrained_string = ""
 
-    if args.use_attention_map or args.attention_loss or args.attention_score_loss:
+    if args.attention_score_loss:
         #assert model_type == "vit" and not pretrained
 
         map_generator = AttnMapGenerator(
