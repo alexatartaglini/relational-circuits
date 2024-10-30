@@ -1,5 +1,5 @@
 from torch.utils.data import DataLoader
-from data import SameDifferentDataset #, AttnMapGenerator
+from data import SameDifferentDataset, AttnMapGenerator
 import torch.nn as nn
 import torch
 import argparse
@@ -262,7 +262,7 @@ def compute_auxiliary_loss(
     if probe_type == "cls":
         states_1 = states_1.reshape((batch_size, num_patches, -1))
         states_2 = states_2.reshape((batch_size, num_patches, -1))
-
+    
     states = torch.cat((states_1, states_2), 1)
 
     # shape and color labels are maintained for each patch within an object
@@ -334,6 +334,7 @@ def compute_auxiliary_loss(
                     assert states.shape[0] == 16 * batch_size and states.shape[1] == 768
 
     if probe_type == "shape-color":
+        states = torch.cat((states_1, states_2), 0)
         # Run shape probe on half of the embedding, color probe on other half, ensures nonoverlapping subspaces
         shape_outs = shape_probe(states[:, :probe_dim])
         color_outs = color_probe(states[:, probe_dim:])

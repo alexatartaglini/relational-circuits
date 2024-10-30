@@ -60,6 +60,9 @@ def model_train_parser(parser):
         default="",
     )
     parser.add_argument(
+        "--probe_type", default="shape-color", type=str, help="Type of probe for auxiliary loss: `shape-color` or `cls`"
+    )
+    parser.add_argument(
         "--patch_size", type=int, default=16, help="Size of model patch (eg. 16 or 32)."
     )
     parser.add_argument(
