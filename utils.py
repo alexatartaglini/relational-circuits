@@ -10,15 +10,14 @@ from transformers import (
     ViTConfig,
     CLIPVisionModelWithProjection,
     CLIPConfig,
+    CLIPVisionConfig,
     AutoProcessor,
-    Dinov2ForImageClassification
+    Dinov2ForImageClassification,
 )
-from attention_map_vit import AttnMapViTForImageClassification
 
-sys.path.append(
-    "/users/XXXX/data/XXXX/projects/relational-circuits/TransformerLens"
-)
-"""
+
+sys.path.append("/users/mlepori/data/mlepori/projects/relational-circuits/TransformerLens")
+
 from transformer_lens.loading_from_pretrained import (
     convert_vit_weights,
     convert_clip_weights,
@@ -26,10 +25,8 @@ from transformer_lens.loading_from_pretrained import (
 from transformer_lens.HookedViT import HookedViT
 from transformer_lens.components import ViTHead
 from transformer_lens.utils import get_act_name
-"""
 
-# from TransformerLens.transformer_lens.loading_from_pretrained import convert_vit_weights
-# from TransformerLens.transformer_lens.HookedViT import HookedViT
+
 import torch.nn as nn
 import itertools
 
@@ -58,7 +55,13 @@ def get_config():
 
 
 def load_model_from_path(
-    model_path, model_type, patch_size, im_size, train=False, device=None, use_attention_map=False,
+    model_path,
+    model_type,
+    patch_size,
+    im_size,
+    train=False,
+    device=None,
+    use_attention_map=False,
 ):
 
     if not device:
@@ -94,6 +97,54 @@ def load_model_from_path(
         model.eval()
 
     return model, transform
+
+
+def load_tl_model(
+    path,
+    patch_size,
+    model_type="vit",
+    im_size=224,
+):
+    # Load models
+    if model_type == "vit":
+        model_path = f"google/vit-base-patch{patch_size}-{im_size}-in21k"
+        transform = ViTImageProcessor(do_resize=False).from_pretrained(model_path)
+
+        hf_model = ViTForImageClassification.from_pretrained(model_path).to("cuda")
+
+        tl_model = HookedViT.from_pretrained(
+            f"google/vit-base-patch{patch_size}-{im_size}-in21k"
+        ).to("cuda")
+
+        hf_model.load_state_dict(torch.load(path))
+        state_dict = convert_vit_weights(hf_model, tl_model.cfg)
+        tl_model.load_state_dict(state_dict, strict=False)
+
+    if "clip" in model_type:
+
+        transform = AutoProcessor.from_pretrained(
+            f"openai/clip-vit-base-patch{patch_size}"
+        ).image_processor
+        cfg = CLIPVisionConfig.from_pretrained(
+            f"openai/clip-vit-base-patch{patch_size}"
+        )
+        hf_model = CLIPVisionModelWithProjection(cfg).to("cuda")
+        hf_model.visual_projection = nn.Linear(cfg.hidden_size, 2, bias=False)
+        hf_model.load_state_dict(torch.load(path))
+
+        tl_model = HookedViT.from_pretrained(
+            f"openai/clip-vit-base-patch{patch_size}",
+            is_clip=True,
+            force_projection_bias=True,
+        )
+        tl_model.cfg.num_labels = 2
+        tl_model.classifier_head = ViTHead(tl_model.cfg)
+        tl_model.to("cuda")
+
+        state_dict = convert_clip_weights(hf_model, tl_model.cfg)
+        tl_model.load_state_dict(state_dict, strict=False)
+
+    return transform, tl_model
 
 
 def load_model_for_training(
@@ -138,8 +189,8 @@ def load_model_for_training(
                 )
                 if attention_map_generator is not None:
                     configuration.patch_layer_list = attention_map_generator.all_layers
-                    model =  AttnMapViTForImageClassification.from_pretrained(model_path, config=configuration)
-                    model =  AttnMapViTForImageClassification(configuration)
+                    # model =  AttnMapViTForImageClassification.from_pretrained(model_path, config=configuration)
+                    # model =  AttnMapViTForImageClassification(configuration)
                 else:
                     model = ViTForImageClassification(configuration)
 
@@ -150,7 +201,7 @@ def load_model_for_training(
         model_path = "facebook/dinov2-base"
 
         model = Dinov2ForImageClassification.from_pretrained(
-            model_path, 
+            model_path,
             num_labels=2,
             id2label=int_to_label,
             label2id=label_to_int,

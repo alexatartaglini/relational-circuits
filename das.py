@@ -1,6 +1,6 @@
 import sys
 
-sys.path.append("/users/XXXX/data/XXXX/projects/relational-circuits/pyvene")
+sys.path.append("/users/mlepori/data/mlepori/projects/relational-circuits/pyvene")
 
 import torch
 from tqdm import tqdm, trange
@@ -770,6 +770,7 @@ if __name__ == "__main__":
     # Load model
     model_path = f"./models/b{patch_size}/{task}/{pretrain}/{ds}_{obj_size}/{comp_str}_{run_id}.pth"
 
+    print(model_path)
     model, image_processor = utils.load_model_from_path(
         model_path, pretrain, patch_size=patch_size, im_size=224, device=device
     )
