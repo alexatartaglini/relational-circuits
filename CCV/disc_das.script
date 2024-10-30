@@ -1,0 +1,13 @@
+#!/bin/bash
+
+#SBATCH -N 1-1 -n 1 
+#SBATCH -p gpu --gres=gpu:1
+#SBATCH --mem=40gb
+#SBATCH -t 20:00:00
+ 
+source /gpfs/data/epavlick/mlepori/miniconda3/etc/profile.d/conda.sh
+
+conda activate relational-circuits
+python $PROJECT_DIR/das.py --pretrain $MODEL --task discrimination --lr $LR --mask_lr $MASK_LR --run_id $RUN_ID --analysis $ANALYSIS --compositional $COMPOSITIONAL --control $CONTROL --num_epochs 20 --obj_size $OBJ_SIZE --patch_size $PATCH_SIZE --tie_weights true --min_layer 0 --max_layer 12
+
+

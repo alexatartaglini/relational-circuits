@@ -93,7 +93,8 @@ stimuli/mts/aligned/b32/N_16/trainsize_6400_32-32-224/val/*
 
 stimuli/counting/NOISE_RGB/N_32/*
 
-CCV/*
+CCV/err/*
+CCV/out/*
 *.err
 *.out
 wandb*

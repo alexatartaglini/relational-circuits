@@ -16,8 +16,6 @@ from transformers import (
 )
 
 
-# from attention_map_vit import AttnMapViTForImageClassification
-
 sys.path.append("/users/mlepori/data/mlepori/projects/relational-circuits/TransformerLens")
 
 from transformer_lens.loading_from_pretrained import (
