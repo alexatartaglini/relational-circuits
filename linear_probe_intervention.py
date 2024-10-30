@@ -10,6 +10,7 @@ import pandas as pd
 import utils
 from argparsers import model_probe_parser
 from functools import partial
+import gc
 import copy
 
 
@@ -127,6 +128,8 @@ def train_probe_epoch(
 
         running_loss += loss.detach().item() * inputs.size(0)
         running_acc += acc * inputs.size(0)
+        inputs.to("cpu")
+        labels.to("cpu")
 
     epoch_loss = running_loss / dataset_size
     epoch_acc = running_acc / dataset_size
@@ -168,6 +171,9 @@ def evaluation(
 
             preds = output_logits.argmax(1)
             acc = accuracy_score(labels.to("cpu"), preds.to("cpu"))
+
+            inputs.to("cpu")
+            labels.to("cpu")
 
             running_loss_test += loss.detach().item() * inputs.size(0)
             running_acc_test += acc * inputs.size(0)
@@ -451,6 +457,8 @@ if __name__ == "__main__":
 
     if pretrain == "clip":
         model_type = "clip_vit"
+    elif "dinov2" in pretrain:
+        model_type = "dinov2_vit"
     else:
         model_type = "vit"
 
@@ -478,6 +486,8 @@ if __name__ == "__main__":
     # Use the ViT as a backbone,
     if model_type == "vit":
         backbone = model.vit
+    elif "dinov2" in model_type:
+        backbone = model.dinov2
     else:
         backbone = model.vision_model
 
@@ -531,6 +541,13 @@ if __name__ == "__main__":
         "Intervention Acc Display": [],
         "Intervention Acc Objects": [],
     }
+
+    # Free up gpu memory
+    model.to("cpu")
+    backbone.to("cpu")
+    gc.collect()
+    torch.cuda.empty_cache()
+
     # Iterate over layers, probe for same-different status of each object pair
     for layer in range(12):
         print(f"Layer: {layer}")
@@ -565,7 +582,7 @@ if __name__ == "__main__":
         )
 
         intervention_dataloader = DataLoader(
-            intervention_dataset, batch_size=512, shuffle=False
+            intervention_dataset, batch_size=128, shuffle=False
         )
 
         # Create probe
@@ -604,6 +621,8 @@ if __name__ == "__main__":
         results_dict["layer"].append(layer)
         results_dict["train acc"].append(probe_results["acc"])
         results_dict["test acc"].append(probe_results["test_acc"])
+
+        hooked_model.to("cuda")
 
         # Using trained probe weights, run linear intervention
         intervention_results = run_intervention(

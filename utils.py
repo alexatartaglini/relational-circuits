@@ -12,15 +12,19 @@ from transformers import (
     CLIPConfig,
     CLIPVisionConfig,
     AutoProcessor,
+    AutoImageProcessor,
     Dinov2ForImageClassification,
 )
 
 
-sys.path.append("/users/mlepori/data/mlepori/projects/relational-circuits/TransformerLens")
+sys.path.append(
+    "/users/mlepori/data/mlepori/projects/relational-circuits/TransformerLens"
+)
 
 from transformer_lens.loading_from_pretrained import (
     convert_vit_weights,
     convert_clip_weights,
+    convert_dino_weights,
 )
 from transformer_lens.HookedViT import HookedViT
 from transformer_lens.components import ViTHead
@@ -79,6 +83,14 @@ def load_model_from_path(
         # so we shouldn't have one either
         model.visual_projection = nn.Linear(in_features, 2, bias=False)
 
+    elif model_type == "dinov2_vit":
+        hf_path = "facebook/dinov2-base"
+        model = Dinov2ForImageClassification.from_pretrained(
+            hf_path,
+            num_labels=2,
+        )
+        transform = AutoImageProcessor.from_pretrained(hf_path)
+        transform.do_resize = False
     else:
         hf_path = f"google/vit-base-patch{patch_size}-{im_size}-in21k"
         transform = ViTImageProcessor(do_resize=False).from_pretrained(hf_path)
@@ -120,6 +132,21 @@ def load_tl_model(
         state_dict = convert_vit_weights(hf_model, tl_model.cfg)
         tl_model.load_state_dict(state_dict, strict=False)
 
+    if "dinov2" in model_type:
+        model_path = "facebook/dinov2-base"
+        transform = AutoImageProcessor.from_pretrained(model_path)
+        transform.do_resize = False
+        hf_model = Dinov2ForImageClassification.from_pretrained(
+            model_path,
+            num_labels=2,
+        )
+
+        tl_model = HookedViT.from_pretrained(f"facebook/dinov2-base")
+
+        hf_model.load_state_dict(torch.load(path))
+        state_dict = convert_dino_weights(hf_model, tl_model.cfg)
+        tl_model.load_state_dict(state_dict, strict=False)
+
     if "clip" in model_type:
 
         transform = AutoProcessor.from_pretrained(
@@ -159,6 +186,7 @@ def load_model_for_training(
     attention_map_generator=None,
 ):
     # Load models
+
     if model_type == "vit" or model_type == "dino_vit" or model_type == "mae_vit":
 
         if model_type == "dino_vit":
@@ -207,7 +235,8 @@ def load_model_for_training(
             label2id=label_to_int,
         )
 
-        transform = ViTImageProcessor(do_resize=False).from_pretrained(model_path)
+        transform = AutoImageProcessor.from_pretrained(model_path)
+        transform.do_resize = False
 
     elif "clip" in model_type:
         model_string = "clip_vit_b{0}".format(patch_size)

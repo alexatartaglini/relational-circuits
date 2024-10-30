@@ -2,7 +2,6 @@
 
 #SBATCH -N 1-1 -n 1 
 #SBATCH -p gpu --gres=gpu:1
-#SBATCH --account=carney-tserre-condo
 #SBATCH --mem=40gb
 #SBATCH -t 20:00:00
  
