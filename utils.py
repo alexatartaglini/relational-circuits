@@ -15,12 +15,12 @@ from transformers import (
     Dinov2ForImageClassification,
 )
 
-
-sys.path.append("/users/mlepori/data/mlepori/projects/relational-circuits/TransformerLens")
+sys.path.append("../TransformerLens")
 
 from transformer_lens.loading_from_pretrained import (
     convert_vit_weights,
     convert_clip_weights,
+    convert_dino_weights,
 )
 from transformer_lens.HookedViT import HookedViT
 from transformer_lens.components import ViTHead
@@ -54,6 +54,7 @@ def get_config():
             return yaml.load(stream, Loader=yaml.FullLoader)
 
 
+"""
 def load_model_from_path(
     model_path,
     model_type,
@@ -97,17 +98,24 @@ def load_model_from_path(
         model.eval()
 
     return model, transform
+"""
 
 
 def load_tl_model(
-    path,
-    patch_size,
+    path="",
+    patch_size=16,
     model_type="vit",
     im_size=224,
 ):
     # Load models
-    if model_type == "vit":
-        model_path = f"google/vit-base-patch{patch_size}-{im_size}-in21k"
+    if model_type == "vit" or model_type == "dino_vit" or model_type == "mae_vit":
+        if model_type == "vit":
+            model_path = f"google/vit-base-patch{patch_size}-{im_size}-in21k"
+        elif model_type == "dino_vit":
+            model_path = f"facebook/dino-vitb{patch_size}"
+        elif model_type == "mae_vit":
+            model_path = "facebook/vit-mae-base"
+
         transform = ViTImageProcessor(do_resize=False).from_pretrained(model_path)
 
         hf_model = ViTForImageClassification.from_pretrained(model_path).to("cuda")
@@ -116,12 +124,12 @@ def load_tl_model(
             f"google/vit-base-patch{patch_size}-{im_size}-in21k"
         ).to("cuda")
 
-        hf_model.load_state_dict(torch.load(path))
+        if len(path) > 0:
+            hf_model.load_state_dict(torch.load(path))
         state_dict = convert_vit_weights(hf_model, tl_model.cfg)
         tl_model.load_state_dict(state_dict, strict=False)
 
-    if "clip" in model_type:
-
+    elif model_type == "clip_vit":
         transform = AutoProcessor.from_pretrained(
             f"openai/clip-vit-base-patch{patch_size}"
         ).image_processor
@@ -130,7 +138,9 @@ def load_tl_model(
         )
         hf_model = CLIPVisionModelWithProjection(cfg).to("cuda")
         hf_model.visual_projection = nn.Linear(cfg.hidden_size, 2, bias=False)
-        hf_model.load_state_dict(torch.load(path))
+
+        if len(path) > 0:
+            hf_model.load_state_dict(torch.load(path))
 
         tl_model = HookedViT.from_pretrained(
             f"openai/clip-vit-base-patch{patch_size}",
@@ -142,6 +152,27 @@ def load_tl_model(
         tl_model.to("cuda")
 
         state_dict = convert_clip_weights(hf_model, tl_model.cfg)
+        tl_model.load_state_dict(state_dict, strict=False)
+
+    elif model_type == "dinov2_vit":
+        transform = ViTImageProcessor(do_resize=False).from_pretrained(
+            "facebook/dinov2-base"
+        )
+        hf_model = Dinov2ForImageClassification.from_pretrained(
+            "facebook/dinov2-base",
+            num_labels=2,
+        )
+        if len(path) > 0:
+            hf_model.load_state_dict(torch.load(path))
+
+        tl_model = HookedViT.from_pretrained(
+            "facebook/dinov2-base",
+        )
+        tl_model.cfg.num_labels = 2
+        tl_model.classifier_head = ViTHead(tl_model.cfg)
+        tl_model.to("cuda")
+
+        state_dict = convert_dino_weights(hf_model, tl_model.cfg)
         tl_model.load_state_dict(state_dict, strict=False)
 
     return transform, tl_model
