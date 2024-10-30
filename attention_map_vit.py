@@ -17,10 +17,7 @@
 import collections.abc
 import math
 from typing import Dict, List, Optional, Set, Tuple, Union
-<<<<<<< HEAD
 import copy
-=======
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
 
 import torch
 import torch.utils.checkpoint
@@ -302,7 +299,6 @@ class ViTPatchSelfAttention(nn.Module):
         self.num_attention_heads = config.num_attention_heads
         self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
         self.all_head_size = self.num_attention_heads * self.attention_head_size
-<<<<<<< HEAD
 
         self.query = nn.Linear(
             config.hidden_size, self.all_head_size, bias=config.qkv_bias
@@ -314,11 +310,9 @@ class ViTPatchSelfAttention(nn.Module):
             config.hidden_size, self.all_head_size, bias=config.qkv_bias
         )
         self.original_value = copy.deepcopy(self.value)
-=======
         self.value = nn.Linear(
             config.hidden_size, self.all_head_size, bias=config.qkv_bias
         )
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
 
     def transpose_for_scores(self, x: torch.Tensor) -> torch.Tensor:
         new_x_shape = x.size()[:-1] + (
@@ -332,16 +326,12 @@ class ViTPatchSelfAttention(nn.Module):
         self,
         hidden_states,
         attention_maps=None,
-<<<<<<< HEAD
         attention_map_strength: float = 0.0, 
-=======
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
         head_mask: Optional[torch.Tensor] = None,
         output_attentions: bool = False,
     ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor]]:
 
         value_layer = self.transpose_for_scores(self.value(hidden_states))
-<<<<<<< HEAD
 
         if attention_map_strength > 0:
             key_layer = self.transpose_for_scores(self.key(hidden_states))
@@ -357,9 +347,7 @@ class ViTPatchSelfAttention(nn.Module):
             attention_probs = nn.functional.softmax(attention_scores, dim=-1)
         else:
             attention_probs = attention_maps
-=======
         attention_probs = attention_maps
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
 
         # Mask heads if we want to
         if head_mask is not None:
@@ -513,12 +501,8 @@ class ViTPatchAttention(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-<<<<<<< HEAD
         attention_maps: torch.Tensor = None,
         attention_map_strength: float = 0.0, 
-=======
-        attention_maps,
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
         head_mask: Optional[torch.Tensor] = None,
         output_attentions: bool = False,
     ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor]]:
@@ -527,10 +511,7 @@ class ViTPatchAttention(nn.Module):
             head_mask=head_mask,
             output_attentions=output_attentions,
             attention_maps=attention_maps,
-<<<<<<< HEAD
             attention_map_strength=attention_map_strength,
-=======
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
         )
 
         attention_output = self.output(self_outputs[0], hidden_states)
@@ -613,10 +594,7 @@ class ViTLayer(nn.Module):
         head_mask: Optional[torch.Tensor] = None,
         output_attentions: bool = False,
         attention_maps=None,
-<<<<<<< HEAD
         attention_map_strength: float = 0.0, 
-=======
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
     ) -> Union[Tuple[torch.Tensor, torch.Tensor], Tuple[torch.Tensor]]:
 
         if attention_maps is not None:
@@ -627,10 +605,7 @@ class ViTLayer(nn.Module):
                 head_mask=head_mask,
                 output_attentions=output_attentions,
                 attention_maps=attention_maps,
-<<<<<<< HEAD
                 attention_map_strength=attention_map_strength,
-=======
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
             )
         else:
             self_attention_outputs = self.attention(
@@ -676,10 +651,7 @@ class ViTEncoder(nn.Module):
         self,
         hidden_states: torch.Tensor,
         attention_maps=None,
-<<<<<<< HEAD
         attention_map_strength: float = 0.0, 
-=======
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
         head_mask: Optional[torch.Tensor] = None,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
@@ -702,20 +674,13 @@ class ViTEncoder(nn.Module):
                     output_attentions,
                 )
             else:
-<<<<<<< HEAD
                 if i in self.config.patch_layer_list and attention_maps is not None:
-=======
-                if i in self.config.patch_layer_list:
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
                     layer_outputs = layer_module(
                         hidden_states,
                         layer_head_mask,
                         output_attentions,
                         attention_maps=attention_maps[i],
-<<<<<<< HEAD
                         attention_map_strength=attention_map_strength,
-=======
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
                     )
                 else:
                     layer_outputs = layer_module(
@@ -867,10 +832,7 @@ class AttnMapViTModel(ViTPreTrainedModel):
         self,
         pixel_values: Optional[torch.Tensor] = None,
         attention_maps: Optional[torch.Tensor] = None,
-<<<<<<< HEAD
         attention_map_strength: float = 0.0, 
-=======
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
         bool_masked_pos: Optional[torch.BoolTensor] = None,
         head_mask: Optional[torch.Tensor] = None,
         output_attentions: Optional[bool] = None,
@@ -920,10 +882,7 @@ class AttnMapViTModel(ViTPreTrainedModel):
         encoder_outputs = self.encoder(
             embedding_output,
             attention_maps=attention_maps,
-<<<<<<< HEAD
             attention_map_strength=attention_map_strength,
-=======
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
             head_mask=head_mask,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
@@ -1009,10 +968,7 @@ class AttnMapViTForImageClassification(ViTPreTrainedModel):
         self,
         pixel_values: Optional[torch.Tensor] = None,
         attention_maps: Optional[torch.Tensor] = None,
-<<<<<<< HEAD
         attention_map_strength: float = 0.0, 
-=======
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
         head_mask: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
         output_attentions: Optional[bool] = None,
@@ -1034,10 +990,7 @@ class AttnMapViTForImageClassification(ViTPreTrainedModel):
             pixel_values,
             head_mask=head_mask,
             attention_maps=attention_maps,
-<<<<<<< HEAD
             attention_map_strength=attention_map_strength,
-=======
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             interpolate_pos_encoding=interpolate_pos_encoding,
@@ -1084,8 +1037,4 @@ class AttnMapViTForImageClassification(ViTPreTrainedModel):
             logits=logits,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
-<<<<<<< HEAD
         )
-=======
-        )
->>>>>>> 11b8cc696d8529ff8d677337dafd6a72f16cc64c

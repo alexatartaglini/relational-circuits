@@ -52,6 +52,186 @@ for c in range(len(ood_colors)):  # ood colors
     col = ood_colors[c]
     color_to_int[f"mean{col}_var10"] = c + len(color_combos)
 
+class AttnMapGenerator:
+    def __init__(
+        self, 
+        wo_layers=[],
+        wp_layers=[],
+        bp_layers=[],
+        task="discrimination",
+        patch_size=16,
+        device=None,
+        dtype=torch.float32,
+        heads=12,
+        model_heads=12,
+    ):
+        if wo_layers is None:
+            wo_layers = []
+        if wp_layers is None:
+            wp_layers = []
+        if bp_layers is None:
+            bp_layers = []
+
+        if isinstance(wo_layers, str):
+            wo_layers = list(map(int, wo_layers.split())) 
+        if isinstance(wp_layers, str):
+            wp_layers = list(map(int, wp_layers.split())) 
+        if isinstance(bp_layers, str):
+            bp_layers = list(map(int, bp_layers.split())) 
+
+        if len(wo_layers) > 0 and isinstance(wo_layers[0], str):
+            wo_layers = list(map(int, wo_layers[0].split())) 
+        if len(wp_layers) > 0 and isinstance(wp_layers[0], str):
+            wp_layers = list(map(int, wp_layers[0].split())) 
+        if len(bp_layers) > 0 and isinstance(bp_layers[0], str):
+            bp_layers = list(map(int, bp_layers[0].split())) 
+        
+        if len(wo_layers) == 0 and len(wp_layers) == 0 and len(bp_layers) == 0:
+            raise ValueError("Need to specify WO or WP or BP layers")
+
+        check = set.intersection(set(wo_layers), set(wp_layers), set(bp_layers))
+        if len(check) > 0:
+            raise ValueError("Cannot have overlapping WO, WP, or BP layer values")
+
+        if device is None:
+            self.device = torch.device("cuda")
+        else:
+            self.device = device
+        
+        self.dtype = dtype
+
+        self.wo = torch.Tensor(wo_layers).to(int).to(self.device)
+        self.wp = torch.Tensor(wp_layers).to(int).to(self.device)
+        self.bp = torch.Tensor(bp_layers).to(int).to(self.device)
+        self.all_layers = sorted(wo_layers + wp_layers + bp_layers)
+
+        self.use_wo = True
+        self.use_wp = True
+        self.use_bp = True
+
+        self.task = task
+        self.num_tokens = (224 // patch_size)**2 + 1
+
+        self.heads = torch.from_numpy(np.random.choice(list(range(model_heads)), size=heads, replace=False)).to(self.device)
+        self.model_heads = model_heads
+
+    def __call__(self, item):
+        return self.get_attn_map(item)
+
+    def get_attn_map(self, item):
+        maps = {}
+        obj1_idx = torch.Tensor(item["stream_1"]).to(int).to(self.device)
+        obj2_idx = torch.Tensor(item["stream_2"]).to(int).to(self.device)
+        batch_size = item["label"].shape[0]
+
+        if self.task == "rmts":
+            display1_idx = torch.Tensor(item["display_stream_1"]).to(int).to(self.device)
+            display2_idx = torch.Tensor(item["display_stream_2"]).to(int).to(self.device)
+
+        if len(self.wo) > 0:
+            wo_map = torch.zeros((batch_size, self.model_heads, self.num_tokens, self.num_tokens)).to(self.dtype).to(self.device)
+            batch_map = torch.zeros((batch_size, self.num_tokens, self.num_tokens)).to(self.device)
+            batch_idx = torch.arange(batch_size).unsqueeze(1).to(self.device)
+
+            if self.use_wo:
+                obj1_idx_wo = torch.cat(tuple(obj1_idx for _ in range(4)), 1)
+                obj12_idx_wo = torch.cat(tuple(torch.roll(obj1_idx, i, dims=-1) for i in range(4)), -1)
+                obj2_idx_wo = torch.cat(tuple(obj2_idx for _ in range(4)), 1)
+                obj22_idx_wo = torch.cat(tuple(torch.roll(obj2_idx, i, dims=-1) for i in range(4)), -1)
+
+                batch_map[batch_idx, obj1_idx_wo, obj12_idx_wo] = 1
+                batch_map[batch_idx, obj2_idx_wo, obj22_idx_wo] = 1
+                if self.task == "rmts":
+                    batch_map[batch_idx, display1_idx, display1_idx] = 1
+                    batch_map[batch_idx, display2_idx, display2_idx] = 1
+
+                batch_map = batch_map.unsqueeze(1).repeat(1, len(self.heads), 1, 1)
+                wo_map[:, self.heads, :, :] = batch_map
+
+            for layer in self.wo:
+                maps[layer.item()] = wo_map
+        
+        if len(self.wp) > 0:
+            wp_map = torch.zeros((batch_size, self.model_heads, self.num_tokens, self.num_tokens)).to(self.dtype).to(self.device)
+            batch_map = torch.zeros((batch_size, self.num_tokens, self.num_tokens)).to(self.device)
+            batch_idx = torch.arange(batch_size).unsqueeze(1).to(self.device)
+
+            if self.use_wp:
+                obj1_idx_wp = torch.cat(tuple(obj1_idx for _ in range(4)), 1)
+                obj2_idx_wp = torch.cat(tuple(torch.roll(obj2_idx, i, dims=-1) for i in range(4)), -1)
+
+                batch_map[batch_idx, obj1_idx_wp, obj2_idx_wp] = 1
+                batch_map[batch_idx, obj2_idx_wp, obj1_idx_wp] = 1
+                if self.task == "rmts":
+                    display1_idx_wp = torch.cat(tuple(display1_idx for _ in range(4)), 1)
+                    display2_idx_wp = torch.cat(tuple(torch.roll(display2_idx, i, dims=-1) for i in range(4)), -1)
+
+                    batch_map[batch_idx, display1_idx_wp, display2_idx_wp] = 1
+                    batch_map[batch_idx, display2_idx_wp, display1_idx_wp] = 1
+
+                batch_map = batch_map.unsqueeze(1).repeat(1, len(self.heads), 1, 1)
+                wp_map[:, self.heads, :, :] = batch_map
+
+            for layer in self.wp:
+                maps[layer.item()] = wp_map
+
+        if self.task == "rmts" and len(self.bp) > 0:
+            bp_map = torch.zeros((batch_size, self.model_heads, self.num_tokens, self.num_tokens)).to(self.dtype).to(self.device)
+            batch_map = torch.zeros((batch_size, self.num_tokens, self.num_tokens)).to(self.device)
+            batch_idx = torch.arange(batch_size).unsqueeze(1).to(self.device)
+
+            if self.use_bp:
+                obj1_idx_bp = torch.cat(tuple(obj1_idx for _ in range(4)), 1)
+                obj2_idx_bp = torch.cat(tuple(obj1_idx for _ in range(4)), 1)
+                display1_idx_bp = torch.cat(tuple(torch.roll(display1_idx, i, dims=-1) for i in range(4)), -1)
+                display2_idx_bp = torch.cat(tuple(torch.roll(display2_idx, i, dims=-1) for i in range(4)), -1)
+
+                batch_map[batch_idx, obj1_idx_bp, display1_idx_bp] = 1
+                batch_map[batch_idx, display1_idx_bp, obj1_idx_bp] = 1
+                batch_map[batch_idx, obj1_idx_bp, display2_idx_bp] = 1
+                batch_map[batch_idx, display2_idx_bp, obj1_idx_bp] = 1
+
+                batch_map[batch_idx, obj2_idx_bp, display1_idx_bp] = 1
+                batch_map[batch_idx, display1_idx_bp, obj2_idx_bp] = 1
+                batch_map[batch_idx, obj2_idx_bp, display2_idx_bp] = 1
+                batch_map[batch_idx, display2_idx_bp, obj2_idx_bp] = 1
+
+                batch_map = batch_map.unsqueeze(1).repeat(1, len(self.heads), 1, 1)
+                bp_map[:, self.heads, :, :] = batch_map
+
+            for layer in self.bp:
+                maps[layer.item()] = bp_map
+        
+        return maps
+    
+    def get_active_layers(self):
+        active_layers = []
+        if self.use_wo:
+            active_layers += self.wo
+        if self.use_wp:
+            active_layers += self.wp
+        if self.use_bp:
+            active_layers += self.bp
+        return sorted(active_layers)
+    
+    def disable_wo(self):
+        self.use_wo = False
+
+    def disable_wp(self):
+        self.use_wp = False
+
+    def disable_bp(self):
+        self.use_bp = False
+
+    def enable_wo(self):
+        self.use_wo = True
+
+    def enable_wp(self):
+        self.use_wp = True
+
+    def enable_bp(self):
+        self.use_bp = True
+
 
 def corner_coord_to_list(coord, patch_size=16, obj_size=32):
     """

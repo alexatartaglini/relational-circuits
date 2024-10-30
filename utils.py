@@ -13,7 +13,7 @@ from transformers import (
     AutoProcessor,
     Dinov2ForImageClassification
 )
-#from attention_map_vit import AttnMapViTForImageClassification
+from attention_map_vit import AttnMapViTForImageClassification
 
 sys.path.append(
     "/users/XXXX/data/XXXX/projects/relational-circuits/TransformerLens"
@@ -138,8 +138,8 @@ def load_model_for_training(
                 )
                 if attention_map_generator is not None:
                     configuration.patch_layer_list = attention_map_generator.all_layers
-                    #model =  AttnMapViTForImageClassification.from_pretrained(model_path, config=configuration)
-                    #model =  AttnMapViTForImageClassification(configuration)
+                    model =  AttnMapViTForImageClassification.from_pretrained(model_path, config=configuration)
+                    model =  AttnMapViTForImageClassification(configuration)
                 else:
                     model = ViTForImageClassification(configuration)
 

@@ -175,10 +175,10 @@ sweep_configuration = {
     },
 }
 
-"""
 if args.attention_score_loss:
-    sweep_configuration["parameters"]
-"""
+    sweep_configuration["parameters"]["attention_map_wo_layers"] = {"values": ["3 4 5"]}
+    sweep_configuration["parameters"]["attention_map_wp_layers"] = {"values": ["6 7"]}
+
 
 sweep_id = wandb.sweep(
     sweep=sweep_configuration, project=args.wandb_proj, entity=args.wandb_entity
