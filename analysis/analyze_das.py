@@ -106,29 +106,29 @@ if __name__ == "__main__":
         comp_str = f"{args.compositional}-{args.compositional}-{256-args.compositional}"
 
     disc_shape = pd.read_csv(
-        f"../logs/{args.pretrain}/discrimination/NOISE_RGB/aligned/b{args.patch_size}/N_32/trainsize_6400_{comp_str}/DAS/shape/none_results.csv"
+        f"../logs/{args.pretrain}/discrimination/NOISE_RGB/aligned/b{args.patch_size}/N_{args.obj_size}/trainsize_6400_{comp_str}/DAS/shape/none_results.csv"
     )
     disc_shape_control = pd.read_csv(
-        f"../logs/{args.pretrain}/discrimination/NOISE_RGB/aligned/b{args.patch_size}/N_32/trainsize_6400_{comp_str}/DAS/shape/wrong_object_results.csv"
+        f"../logs/{args.pretrain}/discrimination/NOISE_RGB/aligned/b{args.patch_size}/N_{args.obj_size}/trainsize_6400_{comp_str}/DAS/shape/wrong_object_results.csv"
     )
     disc_color = pd.read_csv(
-        f"../logs/{args.pretrain}/discrimination/NOISE_RGB/aligned/b{args.patch_size}/N_32/trainsize_6400_{comp_str}/DAS/color/none_results.csv"
+        f"../logs/{args.pretrain}/discrimination/NOISE_RGB/aligned/b{args.patch_size}/N_{args.obj_size}/trainsize_6400_{comp_str}/DAS/color/none_results.csv"
     )
     disc_color_control = pd.read_csv(
-        f"../logs/{args.pretrain}/discrimination/NOISE_RGB/aligned/b{args.patch_size}/N_32/trainsize_6400_{comp_str}/DAS/color/wrong_object_results.csv"
+        f"../logs/{args.pretrain}/discrimination/NOISE_RGB/aligned/b{args.patch_size}/N_{args.obj_size}/trainsize_6400_{comp_str}/DAS/color/wrong_object_results.csv"
     )
 
     rmts_shape = pd.read_csv(
-        f"../logs/{args.pretrain}/rmts/mts/aligned/b{args.patch_size}/N_32/trainsize_6400_{comp_str}/DAS/shape/none_results.csv"
+        f"../logs/{args.pretrain}/rmts/mts/aligned/b{args.patch_size}/N_{args.obj_size}/trainsize_6400_{comp_str}/DAS/shape/none_results.csv"
     )
     rmts_shape_control = pd.read_csv(
-        f"../logs/{args.pretrain}/rmts/mts/aligned/b{args.patch_size}/N_32/trainsize_6400_{comp_str}/DAS/shape/wrong_object_results.csv"
+        f"../logs/{args.pretrain}/rmts/mts/aligned/b{args.patch_size}/N_{args.obj_size}/trainsize_6400_{comp_str}/DAS/shape/wrong_object_results.csv"
     )
     rmts_color = pd.read_csv(
-        f"../logs/{args.pretrain}/rmts/mts/aligned/b{args.patch_size}/N_32/trainsize_6400_{comp_str}/DAS/color/none_results.csv"
+        f"../logs/{args.pretrain}/rmts/mts/aligned/b{args.patch_size}/N_{args.obj_size}/trainsize_6400_{comp_str}/DAS/color/none_results.csv"
     )
     rmts_color_control = pd.read_csv(
-        f"../logs/{args.pretrain}/rmts/mts/aligned/b{args.patch_size}/N_32/trainsize_6400_{comp_str}/DAS/color/wrong_object_results.csv"
+        f"../logs/{args.pretrain}/rmts/mts/aligned/b{args.patch_size}/N_{args.obj_size}/trainsize_6400_{comp_str}/DAS/color/wrong_object_results.csv"
     )
 
     outdir = (
@@ -136,7 +136,7 @@ if __name__ == "__main__":
     )
     os.makedirs(outdir, exist_ok=True)
     outpath = outdir + f"/DAS"
-    title = f"Counterfactual Interventions: CLIP-b{args.patch_size}"
+    title = f"Counterfactual Interventions: {args.pretrain}-b{args.patch_size}"
     make_barplot(
         disc_shape,
         disc_shape_control,

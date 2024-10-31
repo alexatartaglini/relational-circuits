@@ -16,7 +16,7 @@ from transformers import (
     Dinov2ForImageClassification,
 )
 
-sys.path.append("../TransformerLens")
+sys.path.append("./TransformerLens")
 
 from transformer_lens.loading_from_pretrained import (
     convert_vit_weights,
@@ -55,7 +55,6 @@ def get_config():
             return yaml.load(stream, Loader=yaml.FullLoader)
 
 
-"""
 def load_model_from_path(
     model_path,
     model_type,
@@ -107,7 +106,6 @@ def load_model_from_path(
         model.eval()
 
     return model, transform
-"""
 
 
 def load_tl_model(

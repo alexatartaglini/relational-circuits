@@ -11,6 +11,7 @@ from .gru.modelings_intervenable_gru import *
 from .blip.modelings_intervenable_blip import *
 from .blip.modelings_intervenable_blip_itm import *
 from .backpack_gpt2.modelings_intervenable_backpack_gpt2 import *
+from .dinov2.modelings_intervenable_dinov2 import *
 
 
 #########################################################################
@@ -61,6 +62,9 @@ type_to_module_mapping = {
     hf_models.vit.modeling_vit.ViTModel: vit_type_to_module_mapping,
     hf_models.vit.modeling_vit.ViTForImageClassification: vit_im_clf_type_to_module_mapping,
     hf_models.clip.modeling_clip.CLIPVisionModelWithProjection: clip_im_clf_type_to_module_mapping,
+    hf_models.dinov2.modeling_dinov2.Dinov2ForImageClassification: dinov2_im_clf_type_to_module_mapping,
+    hf_models.dinov2.modeling_dinov2.Dinov2Model: dinov2_type_to_module_mapping,
+
 }
 
 
@@ -90,5 +94,7 @@ type_to_dimension_mapping = {
     hf_models.vit.modeling_vit.ViTModel: vit_type_to_dimension_mapping,
     hf_models.vit.modeling_vit.ViTForImageClassification: vit_im_clf_type_to_dimension_mapping,
     hf_models.clip.modeling_clip.CLIPVisionModelWithProjection: clip_im_clf_type_to_dimension_mapping,
+    hf_models.dinov2.modeling_dinov2.Dinov2ForImageClassification: dinov2_im_clf_type_to_dimension_mapping,
+    hf_models.dinov2.modeling_dinov2.Dinov2Model: dinov2_type_to_dimension_mapping,
 }
 #########################################################################

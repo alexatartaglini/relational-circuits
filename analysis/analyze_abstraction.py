@@ -123,10 +123,10 @@ if __name__ == "__main__":
         data_string = "mts"
 
     shape = pd.read_csv(
-        f"../logs/{args.pretrain}/{args.task}/{data_string}/aligned/b{args.patch_size}/N_32/trainsize_6400_{comp_str}/DAS/shape/none_results.csv"
+        f"../logs/{args.pretrain}/{args.task}/{data_string}/aligned/b{args.patch_size}/N_{args.obj_size}/trainsize_6400_{comp_str}/DAS/shape/none_results.csv"
     )
     color = pd.read_csv(
-        f"../logs/{args.pretrain}/{args.task}/{data_string}/aligned/b{args.patch_size}/N_32/trainsize_6400_{comp_str}/DAS/color/none_results.csv"
+        f"../logs/{args.pretrain}/{args.task}/{data_string}/aligned/b{args.patch_size}/N_{args.obj_size}/trainsize_6400_{comp_str}/DAS/color/none_results.csv"
     )
 
     outdir = f"analysis/{args.pretrain}/b{args.patch_size}/trainsize_6400_{comp_str}/Abstraction"
@@ -136,7 +136,7 @@ if __name__ == "__main__":
         args.task = "RMTS"
     else:
         args.task = "Discrimination"
-    title = f"Novel Representations Analysis: {args.task} CLIP-b{args.patch_size}"
+    title = f"Novel Representations Analysis: {args.task} {args.pretrain}-b{args.patch_size}"
     make_barplot(
         shape,
         color,
